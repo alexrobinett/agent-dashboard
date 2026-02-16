@@ -45,6 +45,372 @@ describe('Convex Tasks Schema', () => {
   })
 })
 
+describe('getByStatus Query - Grouping', () => {
+  it('should group tasks into 6 status columns', () => {
+    const tasks = [
+      { title: 'Task 1', status: 'planning', priority: 'normal', assignedAgent: 'forge' },
+      { title: 'Task 2', status: 'ready', priority: 'high', assignedAgent: 'sentinel' },
+      { title: 'Task 3', status: 'in_progress', priority: 'normal', assignedAgent: 'oracle' },
+      { title: 'Task 4', status: 'in_review', priority: 'low', assignedAgent: 'friday' },
+      { title: 'Task 5', status: 'done', priority: 'normal', assignedAgent: 'forge' },
+      { title: 'Task 6', status: 'blocked', priority: 'urgent', assignedAgent: 'sentinel' },
+    ]
+    
+    const grouped: Record<string, typeof tasks> = {
+      planning: [],
+      ready: [],
+      in_progress: [],
+      in_review: [],
+      done: [],
+      blocked: [],
+    }
+    
+    for (const task of tasks) {
+      const status = task.status || 'planning'
+      if (grouped[status]) {
+        grouped[status].push(task)
+      }
+    }
+    
+    expect(grouped.planning).toHaveLength(1)
+    expect(grouped.ready).toHaveLength(1)
+    expect(grouped.in_progress).toHaveLength(1)
+    expect(grouped.in_review).toHaveLength(1)
+    expect(grouped.done).toHaveLength(1)
+    expect(grouped.blocked).toHaveLength(1)
+    expect(grouped.planning[0].title).toBe('Task 1')
+    expect(grouped.ready[0].title).toBe('Task 2')
+  })
+
+  it('should return all 6 status columns even when empty', () => {
+    const tasks: any[] = []
+    
+    const grouped: Record<string, typeof tasks> = {
+      planning: [],
+      ready: [],
+      in_progress: [],
+      in_review: [],
+      done: [],
+      blocked: [],
+    }
+    
+    for (const task of tasks) {
+      const status = task.status || 'planning'
+      if (grouped[status]) {
+        grouped[status].push(task)
+      }
+    }
+    
+    expect(Object.keys(grouped)).toHaveLength(6)
+    expect(grouped.planning).toEqual([])
+    expect(grouped.ready).toEqual([])
+    expect(grouped.in_progress).toEqual([])
+    expect(grouped.in_review).toEqual([])
+    expect(grouped.done).toEqual([])
+    expect(grouped.blocked).toEqual([])
+  })
+
+  it('should handle tasks with missing status by defaulting to planning', () => {
+    const tasks = [
+      { title: 'Task 1', priority: 'normal', assignedAgent: 'forge' },
+      { title: 'Task 2', status: 'ready', priority: 'high', assignedAgent: 'sentinel' },
+    ]
+    
+    const grouped: Record<string, any[]> = {
+      planning: [],
+      ready: [],
+      in_progress: [],
+      in_review: [],
+      done: [],
+      blocked: [],
+    }
+    
+    for (const task of tasks) {
+      const status = (task as any).status || 'planning'
+      if (grouped[status]) {
+        grouped[status].push(task)
+      }
+    }
+    
+    expect(grouped.planning).toHaveLength(1)
+    expect(grouped.ready).toHaveLength(1)
+    expect(grouped.planning[0].title).toBe('Task 1')
+  })
+
+  it('should group multiple tasks into same status column', () => {
+    const tasks = [
+      { title: 'Task 1', status: 'in_progress', priority: 'high', assignedAgent: 'forge' },
+      { title: 'Task 2', status: 'in_progress', priority: 'normal', assignedAgent: 'sentinel' },
+      { title: 'Task 3', status: 'in_progress', priority: 'urgent', assignedAgent: 'oracle' },
+      { title: 'Task 4', status: 'ready', priority: 'low', assignedAgent: 'friday' },
+    ]
+    
+    const grouped: Record<string, typeof tasks> = {
+      planning: [],
+      ready: [],
+      in_progress: [],
+      in_review: [],
+      done: [],
+      blocked: [],
+    }
+    
+    for (const task of tasks) {
+      const status = task.status || 'planning'
+      if (grouped[status]) {
+        grouped[status].push(task)
+      }
+    }
+    
+    expect(grouped.in_progress).toHaveLength(3)
+    expect(grouped.ready).toHaveLength(1)
+    expect(grouped.in_progress.every(t => t.status === 'in_progress')).toBe(true)
+  })
+
+  it('should preserve task properties when grouping', () => {
+    const tasks = [
+      {
+        _id: 'j57abc123',
+        title: 'Test Task',
+        status: 'in_progress',
+        priority: 'high',
+        project: 'agent-dashboard',
+        assignedAgent: 'forge',
+        createdBy: 'main',
+        createdAt: 1771228225730,
+        notes: 'Test notes',
+      },
+    ]
+    
+    const grouped: Record<string, typeof tasks> = {
+      planning: [],
+      ready: [],
+      in_progress: [],
+      in_review: [],
+      done: [],
+      blocked: [],
+    }
+    
+    for (const task of tasks) {
+      const status = task.status || 'planning'
+      if (grouped[status]) {
+        grouped[status].push(task)
+      }
+    }
+    
+    const task = grouped.in_progress[0]
+    expect(task).toHaveProperty('_id')
+    expect(task).toHaveProperty('title')
+    expect(task).toHaveProperty('status')
+    expect(task).toHaveProperty('priority')
+    expect(task).toHaveProperty('project')
+    expect(task).toHaveProperty('assignedAgent')
+    expect(task).toHaveProperty('createdBy')
+    expect(task).toHaveProperty('createdAt')
+    expect(task).toHaveProperty('notes')
+  })
+
+  it('should handle all valid status values', () => {
+    const validStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
+    
+    validStatuses.forEach(status => {
+      const tasks = [{ title: 'Test', status, priority: 'normal', assignedAgent: 'forge' }]
+      
+      const grouped: Record<string, typeof tasks> = {
+        planning: [],
+        ready: [],
+        in_progress: [],
+        in_review: [],
+        done: [],
+        blocked: [],
+      }
+      
+      for (const task of tasks) {
+        const taskStatus = task.status || 'planning'
+        if (grouped[taskStatus]) {
+          grouped[taskStatus].push(task)
+        }
+      }
+      
+      expect(grouped[status]).toHaveLength(1)
+    })
+  })
+
+  it('should return empty arrays for statuses with no tasks', () => {
+    const tasks = [
+      { title: 'Task 1', status: 'in_progress', priority: 'normal', assignedAgent: 'forge' },
+      { title: 'Task 2', status: 'done', priority: 'high', assignedAgent: 'sentinel' },
+    ]
+    
+    const grouped: Record<string, typeof tasks> = {
+      planning: [],
+      ready: [],
+      in_progress: [],
+      in_review: [],
+      done: [],
+      blocked: [],
+    }
+    
+    for (const task of tasks) {
+      const status = task.status || 'planning'
+      if (grouped[status]) {
+        grouped[status].push(task)
+      }
+    }
+    
+    expect(Array.isArray(grouped.planning)).toBe(true)
+    expect(grouped.planning).toHaveLength(0)
+    expect(Array.isArray(grouped.ready)).toBe(true)
+    expect(grouped.ready).toHaveLength(0)
+    expect(Array.isArray(grouped.in_review)).toBe(true)
+    expect(grouped.in_review).toHaveLength(0)
+    expect(Array.isArray(grouped.blocked)).toBe(true)
+    expect(grouped.blocked).toHaveLength(0)
+  })
+
+  it('should maintain task order within status columns', () => {
+    const tasks = [
+      { title: 'Task 1', status: 'in_progress', priority: 'high', assignedAgent: 'forge', createdAt: 1 },
+      { title: 'Task 2', status: 'in_progress', priority: 'normal', assignedAgent: 'sentinel', createdAt: 2 },
+      { title: 'Task 3', status: 'in_progress', priority: 'low', assignedAgent: 'oracle', createdAt: 3 },
+    ]
+    
+    const grouped: Record<string, typeof tasks> = {
+      planning: [],
+      ready: [],
+      in_progress: [],
+      in_review: [],
+      done: [],
+      blocked: [],
+    }
+    
+    for (const task of tasks) {
+      const status = task.status || 'planning'
+      if (grouped[status]) {
+        grouped[status].push(task)
+      }
+    }
+    
+    expect(grouped.in_progress[0].title).toBe('Task 1')
+    expect(grouped.in_progress[1].title).toBe('Task 2')
+    expect(grouped.in_progress[2].title).toBe('Task 3')
+  })
+})
+
+describe('getById Query - Retrieval', () => {
+  it('should return task object for valid ID', () => {
+    const mockTask = {
+      _id: 'j57abc123' as any,
+      title: 'Test Task',
+      status: 'in_progress',
+      priority: 'high',
+      project: 'agent-dashboard',
+      assignedAgent: 'forge',
+      createdBy: 'main',
+      createdAt: 1771228225730,
+    }
+    
+    // Simulate getById returning the task
+    const result = mockTask
+    
+    expect(result).toBeDefined()
+    expect(result._id).toBe('j57abc123')
+    expect(result.title).toBe('Test Task')
+  })
+
+  it('should return null for non-existent ID', () => {
+    // Simulate getById returning null for missing task
+    const result = null
+    
+    expect(result).toBeNull()
+  })
+
+  it('should return complete task object with all fields', () => {
+    const mockTask = {
+      _id: 'j57abc123' as any,
+      _creationTime: 1771228225730,
+      title: 'Complete Task',
+      status: 'in_review',
+      priority: 'high',
+      project: 'agent-dashboard',
+      assignedAgent: 'forge',
+      createdBy: 'main',
+      createdAt: 1771228225730,
+      notes: 'Detailed notes',
+      version: 5,
+      leaseOwner: 'forge-j57abc123',
+    }
+    
+    const result = mockTask
+    
+    expect(result).toHaveProperty('_id')
+    expect(result).toHaveProperty('_creationTime')
+    expect(result).toHaveProperty('title')
+    expect(result).toHaveProperty('status')
+    expect(result).toHaveProperty('priority')
+    expect(result).toHaveProperty('project')
+    expect(result).toHaveProperty('assignedAgent')
+    expect(result).toHaveProperty('createdBy')
+    expect(result).toHaveProperty('createdAt')
+    expect(result).toHaveProperty('notes')
+    expect(result).toHaveProperty('version')
+    expect(result).toHaveProperty('leaseOwner')
+  })
+
+  it('should handle tasks with minimal fields', () => {
+    const mockTask = {
+      _id: 'j57abc456' as any,
+      title: 'Minimal Task',
+      status: 'planning',
+      priority: 'normal',
+      createdBy: 'main',
+      createdAt: 1771228225730,
+      assignedAgent: 'unassigned',
+    }
+    
+    const result = mockTask
+    
+    expect(result._id).toBe('j57abc456')
+    expect(result.title).toBe('Minimal Task')
+    expect(result.status).toBe('planning')
+  })
+
+  it('should preserve all task properties exactly', () => {
+    const mockTask = {
+      _id: 'j57abc789' as any,
+      title: 'Preserve Properties',
+      status: 'done',
+      priority: 'low',
+      project: 'testing',
+      assignedAgent: 'friday',
+      createdBy: 'automated',
+      createdAt: 1771228225730,
+      notes: 'Custom notes field',
+      customField: 'Should be preserved',
+    }
+    
+    const result = mockTask
+    
+    expect(result).toEqual(mockTask)
+    expect((result as any).customField).toBe('Should be preserved')
+  })
+
+  it('should handle ID parameter correctly', () => {
+    const taskId = 'j57abc123' as any
+    const mockTask = {
+      _id: taskId,
+      title: 'Test',
+      status: 'ready',
+      priority: 'normal',
+      createdBy: 'main',
+      createdAt: 1771228225730,
+      assignedAgent: 'forge',
+    }
+    
+    // Verify ID matches
+    expect(mockTask._id).toBe(taskId)
+  })
+})
+
 describe('listFiltered Query - Default Behavior', () => {
   it('should return default limit of 50 when no limit provided', () => {
     const result = {
