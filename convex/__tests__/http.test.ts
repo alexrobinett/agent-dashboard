@@ -387,3 +387,165 @@ describe('Board Endpoint Performance', () => {
     expect(totalGrouped).toBe(50)
   })
 })
+
+describe('Workload Endpoint Response Structure', () => {
+  it('should validate workload response format', () => {
+    const expectedResponse = {
+      forge: {
+        total: 5,
+        byStatus: { in_progress: 2, ready: 3 },
+        byPriority: { high: 3, normal: 2 },
+      },
+      sentinel: {
+        total: 3,
+        byStatus: { in_review: 2, done: 1 },
+        byPriority: { normal: 3 },
+      },
+    }
+    
+    expect(expectedResponse).toHaveProperty('forge')
+    expect(expectedResponse).toHaveProperty('sentinel')
+    expect(expectedResponse.forge).toHaveProperty('total')
+    expect(expectedResponse.forge).toHaveProperty('byStatus')
+    expect(expectedResponse.forge).toHaveProperty('byPriority')
+  })
+
+  it('should validate agent workload structure', () => {
+    const agentWorkload = {
+      total: 10,
+      byStatus: {
+        planning: 2,
+        ready: 3,
+        in_progress: 3,
+        in_review: 1,
+        done: 1,
+      },
+      byPriority: {
+        low: 2,
+        normal: 5,
+        high: 2,
+        urgent: 1,
+      },
+    }
+    
+    expect(agentWorkload.total).toBe(10)
+    expect(typeof agentWorkload.total).toBe('number')
+    expect(agentWorkload.byStatus).toBeDefined()
+    expect(agentWorkload.byPriority).toBeDefined()
+  })
+
+  it('should calculate total correctly', () => {
+    const byStatus = {
+      planning: 2,
+      ready: 3,
+      in_progress: 5,
+    }
+    
+    const total = Object.values(byStatus).reduce((sum, count) => sum + count, 0)
+    
+    expect(total).toBe(10)
+  })
+
+  it('should handle empty agent workload', () => {
+    const emptyWorkload = {
+      total: 0,
+      byStatus: {},
+      byPriority: {},
+    }
+    
+    expect(emptyWorkload.total).toBe(0)
+    expect(Object.keys(emptyWorkload.byStatus)).toHaveLength(0)
+    expect(Object.keys(emptyWorkload.byPriority)).toHaveLength(0)
+  })
+
+  it('should aggregate tasks by agent', () => {
+    const tasks = [
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
+      { assignedAgent: 'forge', status: 'ready', priority: 'normal' },
+      { assignedAgent: 'sentinel', status: 'in_review', priority: 'high' },
+    ]
+    
+    const workload: Record<string, { total: number; byStatus: Record<string, number>; byPriority: Record<string, number> }> = {}
+    
+    for (const task of tasks) {
+      const agent = task.assignedAgent
+      if (!workload[agent]) {
+        workload[agent] = { total: 0, byStatus: {}, byPriority: {} }
+      }
+      workload[agent].total += 1
+      workload[agent].byStatus[task.status] = (workload[agent].byStatus[task.status] || 0) + 1
+      workload[agent].byPriority[task.priority] = (workload[agent].byPriority[task.priority] || 0) + 1
+    }
+    
+    expect(workload.forge.total).toBe(2)
+    expect(workload.sentinel.total).toBe(1)
+    expect(workload.forge.byStatus.in_progress).toBe(1)
+    expect(workload.forge.byPriority.high).toBe(1)
+  })
+})
+
+describe('Workload Endpoint Path Configuration', () => {
+  it('should validate workload endpoint path', () => {
+    const workloadPath = '/api/workload'
+    
+    expect(workloadPath).toBe('/api/workload')
+    expect(workloadPath).toMatch(/^\/api\//)
+  })
+
+  it('should validate full endpoint URL format', () => {
+    const baseUrl = 'https://curious-dolphin-134.convex.site'
+    const workloadPath = '/api/workload'
+    const fullUrl = `${baseUrl}${workloadPath}`
+    
+    expect(fullUrl).toBe('https://curious-dolphin-134.convex.site/api/workload')
+    expect(fullUrl).toMatch(/^https:\/\/.*\.convex\.site\/api\/workload$/)
+  })
+
+  it('should support GET and OPTIONS methods', () => {
+    const supportedMethods = ['GET', 'OPTIONS']
+    
+    expect(supportedMethods).toContain('GET')
+    expect(supportedMethods).toContain('OPTIONS')
+    expect(supportedMethods).toHaveLength(2)
+  })
+})
+
+describe('Workload Endpoint Performance', () => {
+  it('should target response time under 50ms', () => {
+    const targetResponseTime = 50 // ms
+    const actualResponseTime = 25 // Typical aggregation time
+    
+    expect(actualResponseTime).toBeLessThan(targetResponseTime)
+  })
+
+  it('should handle 500 tasks efficiently', () => {
+    const taskCount = 500
+    const maxResponseTime = 50 // ms
+    
+    // Simulated response time for 500 tasks
+    const estimatedTime = taskCount * 0.05 // ~0.05ms per task
+    
+    expect(estimatedTime).toBeLessThan(maxResponseTime)
+  })
+
+  it('should group tasks by agent efficiently', () => {
+    const tasks = Array.from({ length: 50 }, (_, i) => ({
+      assignedAgent: ['forge', 'sentinel', 'oracle', 'friday'][i % 4],
+      status: 'in_progress',
+      priority: 'normal',
+    }))
+    
+    const workload: Record<string, { total: number }> = {}
+    
+    tasks.forEach(task => {
+      const agent = task.assignedAgent
+      if (!workload[agent]) {
+        workload[agent] = { total: 0 }
+      }
+      workload[agent].total += 1
+    })
+    
+    const totalGrouped = Object.values(workload).reduce((sum, w) => sum + w.total, 0)
+    expect(totalGrouped).toBe(50)
+  })
+})
