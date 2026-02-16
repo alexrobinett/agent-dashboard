@@ -31,4 +31,16 @@ export default defineSchema({
       })
     ),
   }),
+
+  // Push notification tokens for iOS devices
+  pushTokens: defineTable({
+    userId: v.string(),
+    deviceId: v.string(),
+    token: v.string(),
+    platform: v.literal('ios'),
+    createdAt: v.number(),
+    lastUsedAt: v.number(),
+  })
+    .index('by_user', ['userId'])
+    .index('by_device', ['deviceId']),
 })
