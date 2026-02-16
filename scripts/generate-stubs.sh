@@ -55,6 +55,7 @@ export const api = {
   tasks: {
     list: {} as any,
     getByStatus: {} as any,
+    getWorkload: {} as any,
   },
 };
 EOF

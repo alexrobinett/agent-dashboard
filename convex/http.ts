@@ -118,6 +118,47 @@ http.route({
 })
 
 /**
+ * Agent workload endpoint
+ * GET /api/workload
+ * Returns: Agent workload statistics
+ */
+http.route({
+  path: '/api/workload',
+  method: 'GET',
+  handler: httpActionGeneric(async (ctx) => {
+    // Query workload aggregation
+    const workload = await ctx.runQuery(api.tasks.getWorkload, {})
+    
+    return withCors(
+      new Response(
+        JSON.stringify(workload),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      )
+    )
+  }),
+})
+
+/**
+ * OPTIONS handler for /api/workload CORS preflight
+ */
+http.route({
+  path: '/api/workload',
+  method: 'OPTIONS',
+  handler: httpActionGeneric(async () => {
+    return withCors(
+      new Response(null, {
+        status: 204,
+      })
+    )
+  }),
+})
+
+/**
  * Health check endpoint
  * GET /api/health
  * Returns: { status: "ok" }
