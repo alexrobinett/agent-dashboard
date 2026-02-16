@@ -113,25 +113,51 @@ agent-dashboard/
 └── vite.config.ts           # Vite configuration
 ```
 
-## 🧪 Testing
+## 🧪 Testing & Quality
+
+This project follows Test-Driven Development (TDD) practices. See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed TDD guidelines.
+
+### Available Scripts
+
+| Command | Description |
+|---------|-------------|
+| `pnpm test` | Run tests once |
+| `pnpm test:watch` | Run tests in watch mode (TDD mode) |
+| `pnpm test:coverage` | Run tests with coverage report |
+| `pnpm lint` | Check code quality with ESLint |
+| `pnpm lint:fix` | Auto-fix linting issues |
+| `pnpm typecheck` | Validate TypeScript types |
+| `pnpm dev` | Start development server |
+| `pnpm build` | Build for production |
+| `pnpm preview` | Preview production build |
+
+### TDD Workflow
+
+We follow the **Red-Green-Refactor** cycle:
+
+1. **🔴 Red**: Write a failing test first
+2. **🟢 Green**: Write minimal code to pass the test
+3. **♻️ Refactor**: Improve code while keeping tests green
 
 ```bash
-# Run unit tests
-pnpm test
+# Start TDD mode (tests re-run on file changes)
+pnpm test:watch
 
-# Run E2E tests
-pnpm test:e2e
+# Check coverage thresholds (80% minimum)
+pnpm test:coverage
 ```
 
-## 🏗️ Build
+### Quality Gates
 
-```bash
-# Build for production
-pnpm build
+All code must pass:
 
-# Preview production build
-pnpm preview
-```
+- ✅ All tests passing
+- ✅ 80%+ code coverage
+- ✅ No linting errors
+- ✅ No TypeScript errors
+- ✅ Build succeeds
+
+These checks run automatically in CI on every pull request.
 
 ## 🚢 Deployment
 
