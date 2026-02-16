@@ -75,7 +75,9 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: 'pnpm dev --port 4173',
+    // In CI: serve production build (already built by CI workflow)
+    // Locally: use dev server with HMR
+    command: process.env.CI ? 'pnpm preview --port 4173' : 'pnpm dev --port 4173',
     port: 4173,
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
