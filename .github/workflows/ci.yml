@@ -79,6 +79,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       
+      - name: Generate stub files for CI
+        run: bash scripts/generate-stubs.sh
+      
       - name: Run unit tests with coverage
         run: pnpm test:coverage
       
