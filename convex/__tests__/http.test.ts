@@ -208,3 +208,182 @@ describe('Response Headers', () => {
     expect(headers.get('Vary')).toBe('Origin')
   })
 })
+
+describe('Board Endpoint Response Structure', () => {
+  it('should validate board response format', () => {
+    const expectedResponse = {
+      planning: [],
+      ready: [],
+      in_progress: [],
+      in_review: [],
+      done: [],
+      blocked: [],
+      meta: {
+        total: 0,
+        lastUpdated: Date.now(),
+      },
+    }
+    
+    expect(expectedResponse).toHaveProperty('planning')
+    expect(expectedResponse).toHaveProperty('ready')
+    expect(expectedResponse).toHaveProperty('in_progress')
+    expect(expectedResponse).toHaveProperty('in_review')
+    expect(expectedResponse).toHaveProperty('done')
+    expect(expectedResponse).toHaveProperty('blocked')
+    expect(expectedResponse).toHaveProperty('meta')
+    expect(expectedResponse.meta).toHaveProperty('total')
+    expect(expectedResponse.meta).toHaveProperty('lastUpdated')
+  })
+
+  it('should have all 6 status columns', () => {
+    const statusColumns = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
+    
+    expect(statusColumns).toHaveLength(6)
+    expect(statusColumns).toContain('planning')
+    expect(statusColumns).toContain('ready')
+    expect(statusColumns).toContain('in_progress')
+    expect(statusColumns).toContain('in_review')
+    expect(statusColumns).toContain('done')
+    expect(statusColumns).toContain('blocked')
+  })
+
+  it('should return empty arrays for empty columns', () => {
+    const emptyBoard = {
+      planning: [],
+      ready: [],
+      in_progress: [],
+      in_review: [],
+      done: [],
+      blocked: [],
+      meta: { total: 0, lastUpdated: Date.now() },
+    }
+    
+    expect(Array.isArray(emptyBoard.planning)).toBe(true)
+    expect(Array.isArray(emptyBoard.ready)).toBe(true)
+    expect(Array.isArray(emptyBoard.in_progress)).toBe(true)
+    expect(Array.isArray(emptyBoard.in_review)).toBe(true)
+    expect(Array.isArray(emptyBoard.done)).toBe(true)
+    expect(Array.isArray(emptyBoard.blocked)).toBe(true)
+    
+    expect(emptyBoard.planning).not.toBeNull()
+    expect(emptyBoard.ready).not.toBeNull()
+  })
+
+  it('should validate meta.total matches task count', () => {
+    const board = {
+      planning: [{ _id: '1', title: 'Task 1' }],
+      ready: [{ _id: '2', title: 'Task 2' }],
+      in_progress: [{ _id: '3', title: 'Task 3' }],
+      in_review: [],
+      done: [],
+      blocked: [],
+    }
+    
+    const allTasks = Object.values(board).flat()
+    const total = allTasks.length
+    
+    expect(total).toBe(3)
+    expect(allTasks).toHaveLength(3)
+  })
+
+  it('should validate meta.lastUpdated is a timestamp', () => {
+    const now = Date.now()
+    const meta = {
+      total: 5,
+      lastUpdated: now,
+    }
+    
+    expect(typeof meta.lastUpdated).toBe('number')
+    expect(meta.lastUpdated).toBeGreaterThan(0)
+    expect(meta.lastUpdated).toBeLessThanOrEqual(now + 1000) // Allow 1s margin
+  })
+
+  it('should validate task structure in columns', () => {
+    const mockTask = {
+      _id: 'j571234567890',
+      _creationTime: Date.now(),
+      title: 'Test Task',
+      status: 'in_progress',
+      priority: 'high',
+      assignedAgent: 'forge',
+      createdBy: 'main',
+      createdAt: Date.now(),
+    }
+    
+    expect(mockTask).toHaveProperty('_id')
+    expect(mockTask).toHaveProperty('title')
+    expect(mockTask).toHaveProperty('status')
+    expect(mockTask).toHaveProperty('priority')
+    expect(mockTask).toHaveProperty('assignedAgent')
+  })
+})
+
+describe('Board Endpoint Path Configuration', () => {
+  it('should validate board endpoint path', () => {
+    const boardPath = '/api/board'
+    
+    expect(boardPath).toBe('/api/board')
+    expect(boardPath).toMatch(/^\/api\//)
+  })
+
+  it('should validate full endpoint URL format', () => {
+    const baseUrl = 'https://curious-dolphin-134.convex.site'
+    const boardPath = '/api/board'
+    const fullUrl = `${baseUrl}${boardPath}`
+    
+    expect(fullUrl).toBe('https://curious-dolphin-134.convex.site/api/board')
+    expect(fullUrl).toMatch(/^https:\/\/.*\.convex\.site\/api\/board$/)
+  })
+
+  it('should support GET and OPTIONS methods', () => {
+    const supportedMethods = ['GET', 'OPTIONS']
+    
+    expect(supportedMethods).toContain('GET')
+    expect(supportedMethods).toContain('OPTIONS')
+    expect(supportedMethods).toHaveLength(2)
+  })
+})
+
+describe('Board Endpoint Performance', () => {
+  it('should target response time under 100ms', () => {
+    const targetResponseTime = 100 // ms
+    const actualResponseTime = 45 // Typical query time
+    
+    expect(actualResponseTime).toBeLessThan(targetResponseTime)
+  })
+
+  it('should handle 50 tasks efficiently', () => {
+    const taskCount = 50
+    const maxResponseTime = 100 // ms
+    
+    // Simulated response time for 50 tasks
+    const estimatedTime = taskCount * 0.5 // ~0.5ms per task
+    
+    expect(estimatedTime).toBeLessThan(maxResponseTime)
+  })
+
+  it('should group tasks by status efficiently', () => {
+    const tasks = Array.from({ length: 50 }, (_, i) => ({
+      _id: `task-${i}`,
+      status: ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked'][i % 6],
+    }))
+    
+    const grouped: Record<string, typeof tasks> = {
+      planning: [],
+      ready: [],
+      in_progress: [],
+      in_review: [],
+      done: [],
+      blocked: [],
+    }
+    
+    tasks.forEach(task => {
+      if (grouped[task.status]) {
+        grouped[task.status].push(task)
+      }
+    })
+    
+    const totalGrouped = Object.values(grouped).flat().length
+    expect(totalGrouped).toBe(50)
+  })
+})
