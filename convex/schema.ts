@@ -31,4 +31,19 @@ export default defineSchema({
       })
     ),
   }),
+
+  // User preferences for dashboard customization
+  userPreferences: defineTable({
+    userId: v.string(),
+    defaultView: v.union(
+      v.literal('kanban'),
+      v.literal('list'),
+      v.literal('workload')
+    ),
+    filterProject: v.optional(v.string()),
+    filterAgent: v.optional(v.string()),
+    notificationEnabled: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index('by_user', ['userId']),
 })
