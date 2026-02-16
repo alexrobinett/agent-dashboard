@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 
 // Mock @tanstack/react-router
 vi.mock('@tanstack/react-router', () => ({
-  Link: ({ children, to, onClick, className, activeProps, ...props }: any) => (
+  Link: ({ children, to, onClick, className, _activeProps, ...props }: any) => (
     <a href={to} onClick={onClick} className={className} {...props}>
       {children}
     </a>
