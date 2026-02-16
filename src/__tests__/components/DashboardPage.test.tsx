@@ -1,8 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { ConvexProvider } from 'convex/react'
-import { ConvexReactClient } from 'convex/react'
-
 /**
  * Sprint 3.6a: Unit tests for DashboardPage component
  * 
@@ -15,28 +12,6 @@ import { ConvexReactClient } from 'convex/react'
  * - PendingComponent spinner
  * - ErrorComponent with error message and retry button
  */
-
-// Import the actual component functions (not the Route)
-// We'll test the components directly by extracting them
-import { createElement } from 'react'
-
-// Mock Convex client that returns task data
-const createMockConvexClient = (tasks: any = null) => {
-  return {
-    subscribe: (query: { name: string }, _args: unknown, callback: (value: unknown) => void) => {
-      // Immediately invoke callback with mock data
-      if (query.name === 'tasks:getByStatus') {
-        callback(tasks || mockTasksEmpty)
-      }
-      
-      return {
-        unsubscribe: () => {},
-      }
-    },
-    mutation: vi.fn(),
-    action: vi.fn(),
-  } as unknown as ConvexReactClient
-}
 
 // Mock empty task data
 const mockTasksEmpty = {
@@ -374,7 +349,6 @@ describe('DashboardPage - Priority Border Colors', () => {
     render(<DashboardComponent initialData={mockTasksWithData} />)
     
     const highPriorityTask = screen.getByTestId('task-card-task-ready-1')
-    const style = window.getComputedStyle(highPriorityTask)
     const borderColor = highPriorityTask.style.borderLeftColor
     
     // High priority should be red (#EF4444)
@@ -532,7 +506,7 @@ describe('DashboardErrorComponent', () => {
     const originalLocation = window.location
     
     delete (window as any).location
-    window.location = { ...originalLocation, reload: reloadMock } as Location
+    ;(window as any).location = { ...originalLocation, reload: reloadMock }
     
     render(<DashboardErrorComponent error={error} />)
     
@@ -542,6 +516,6 @@ describe('DashboardErrorComponent', () => {
     expect(reloadMock).toHaveBeenCalled()
     
     // Restore original location
-    window.location = originalLocation
+    ;(window as any).location = originalLocation
   })
 })
