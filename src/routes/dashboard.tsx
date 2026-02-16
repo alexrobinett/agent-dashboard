@@ -80,7 +80,10 @@ function DashboardComponent({ initialData }: { initialData: any }) {
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-4xl font-bold text-foreground">Task Dashboard</h1>
           <div className="text-sm text-muted-foreground">
-            <span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
+            <span 
+              data-testid="live-indicator"
+              className="inline-block w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"
+            ></span>
             Live
           </div>
         </div>
@@ -93,6 +96,7 @@ function DashboardComponent({ initialData }: { initialData: any }) {
             return (
               <div
                 key={status}
+                data-testid={`column-${status}`}
                 className="bg-card rounded-lg border border-border p-4 shadow-sm hover:shadow-md transition-shadow"
               >
                 <div className="flex items-center justify-between mb-4">
