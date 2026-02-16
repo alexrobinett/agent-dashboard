@@ -10,6 +10,9 @@ on:
     - cron: '0 2 * * *'
   workflow_dispatch:
 
+env:
+  VITE_CONVEX_URL: https://tacit-bulldog-295.convex.cloud
+
 jobs:
   e2e:
     name: Playwright E2E Tests
@@ -39,12 +42,6 @@ jobs:
       
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps
-      
-      - name: Build project
-        run: pnpm build
-        env:
-          # Build environment variables if needed
-          NODE_ENV: production
       
       - name: Run Playwright tests
         run: pnpm test:e2e

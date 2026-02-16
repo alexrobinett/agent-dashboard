@@ -74,10 +74,12 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    // In CI: serve production build. Locally: use dev server with HMR
-    command: process.env.CI ? 'pnpm preview --port 3000' : 'pnpm dev',
-    url: 'http://localhost:3000',
+    command: 'pnpm build && pnpm preview --port 3000',
+    port: 3000,
     reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
+    timeout: 120000,
+    env: {
+      VITE_CONVEX_URL: process.env.VITE_CONVEX_URL || 'https://tacit-bulldog-295.convex.cloud',
+    },
   },
 })
