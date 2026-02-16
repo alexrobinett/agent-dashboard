@@ -16,7 +16,8 @@ import * as taskModule from '../tasks'
 type Task = Doc<'tasks'>
 type TaskId = Id<'tasks'>
 
-type HandlerExtractor = { handler: (...args: never[]) => Promise<unknown> }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type HandlerExtractor = { handler: (...args: any[]) => Promise<any> }
 const getByStatusHandler = (taskModule.getByStatus as unknown as HandlerExtractor).handler
 const getByIdHandler = (taskModule.getById as unknown as HandlerExtractor).handler
 const listFilteredHandler = (taskModule.listFiltered as unknown as HandlerExtractor).handler
