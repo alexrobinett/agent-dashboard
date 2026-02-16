@@ -20,6 +20,7 @@ export interface QueryCtx {
         take: (n: number) => Promise<any[]>;
       };
     };
+    get: (id: any) => Promise<any>;
   };
 }
 
@@ -29,6 +30,7 @@ export interface MutationCtx extends QueryCtx {
     insert: (table: string, doc: any) => Promise<any>;
     patch: (id: any, fields: any) => Promise<void>;
     delete: (id: any) => Promise<void>;
+    get: (id: any) => Promise<any>;
   };
 }
 
@@ -57,6 +59,9 @@ export const api = {
     getByStatus: {} as any,
     getWorkload: {} as any,
     listFiltered: {} as any,
+    getById: {} as any,
+    create: {} as any,
+    update: {} as any,
   },
 };
 EOF

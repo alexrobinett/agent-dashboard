@@ -254,5 +254,234 @@ http.route({
   }),
 })
 
+/**
+ * Get single task by ID
+ * GET /api/tasks/:id
+ * Returns: Single task object
+ */
+http.route({
+  path: '/api/tasks/:id',
+  method: 'GET',
+  handler: httpActionGeneric(async (ctx, request) => {
+    // Extract task ID from URL path
+    const url = new URL(request.url)
+    const pathParts = url.pathname.split('/')
+    const taskId = pathParts[pathParts.length - 1]
+    
+    try {
+      // Query single task
+      const task = await ctx.runQuery(api.tasks.getById, {
+        id: taskId as any,
+      })
+      
+      if (!task) {
+        return withCors(
+          new Response(
+            JSON.stringify({ error: 'Task not found' }),
+            {
+              status: 404,
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            }
+          )
+        )
+      }
+      
+      return withCors(
+        new Response(
+          JSON.stringify(task),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }
+        )
+      )
+    } catch {
+      return withCors(
+        new Response(
+          JSON.stringify({ error: 'Invalid task ID' }),
+          {
+            status: 400,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }
+        )
+      )
+    }
+  }),
+})
+
+/**
+ * Create new task
+ * POST /api/tasks
+ * Body: { title, priority, project, notes?, assignedAgent?, createdBy?, status? }
+ * Returns: { id }
+ */
+http.route({
+  path: '/api/tasks',
+  method: 'POST',
+  handler: httpActionGeneric(async (ctx, request) => {
+    try {
+      // Parse request body
+      const body = await request.json()
+      
+      // Validate required fields
+      if (!body.title || typeof body.title !== 'string') {
+        return withCors(
+          new Response(
+            JSON.stringify({ error: 'Missing or invalid required field: title' }),
+            {
+              status: 400,
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            }
+          )
+        )
+      }
+      
+      if (!body.priority || typeof body.priority !== 'string') {
+        return withCors(
+          new Response(
+            JSON.stringify({ error: 'Missing or invalid required field: priority' }),
+            {
+              status: 400,
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            }
+          )
+        )
+      }
+      
+      if (!body.project || typeof body.project !== 'string') {
+        return withCors(
+          new Response(
+            JSON.stringify({ error: 'Missing or invalid required field: project' }),
+            {
+              status: 400,
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            }
+          )
+        )
+      }
+      
+      // Create task
+      const result = await ctx.runMutation(api.tasks.create, {
+        title: body.title,
+        priority: body.priority,
+        project: body.project,
+        notes: body.notes,
+        assignedAgent: body.assignedAgent,
+        createdBy: body.createdBy,
+        status: body.status,
+      })
+      
+      return withCors(
+        new Response(
+          JSON.stringify(result),
+          {
+            status: 201,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }
+        )
+      )
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      return withCors(
+        new Response(
+          JSON.stringify({ error: errorMessage }),
+          {
+            status: 400,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }
+        )
+      )
+    }
+  }),
+})
+
+/**
+ * Update task
+ * PATCH /api/tasks/:id
+ * Body: { status?, priority?, assignedAgent?, notes? }
+ * Returns: { success: true }
+ */
+http.route({
+  path: '/api/tasks/:id',
+  method: 'PATCH',
+  handler: httpActionGeneric(async (ctx, request) => {
+    // Extract task ID from URL path
+    const url = new URL(request.url)
+    const pathParts = url.pathname.split('/')
+    const taskId = pathParts[pathParts.length - 1]
+    
+    try {
+      // Parse request body
+      const body = await request.json()
+      
+      // Update task
+      const result = await ctx.runMutation(api.tasks.update, {
+        id: taskId as any,
+        status: body.status,
+        priority: body.priority,
+        assignedAgent: body.assignedAgent,
+        notes: body.notes,
+      })
+      
+      return withCors(
+        new Response(
+          JSON.stringify(result),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }
+        )
+      )
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      const status = errorMessage.includes('not found') ? 404 : 400
+      return withCors(
+        new Response(
+          JSON.stringify({ error: errorMessage }),
+          {
+            status,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }
+        )
+      )
+    }
+  }),
+})
+
+/**
+ * OPTIONS handler for /api/tasks/:id CORS preflight
+ */
+http.route({
+  path: '/api/tasks/:id',
+  method: 'OPTIONS',
+  handler: httpActionGeneric(async () => {
+    return withCors(
+      new Response(null, {
+        status: 204,
+      })
+    )
+  }),
+})
+
 // Export the HTTP router
 export default http

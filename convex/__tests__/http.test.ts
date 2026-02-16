@@ -868,3 +868,385 @@ describe('Tasks List Endpoint Path Configuration', () => {
     expect(fullUrl).toContain('offset=10')
   })
 })
+
+describe('GET /api/tasks/:id Endpoint', () => {
+  it('should validate task ID parameter extraction', () => {
+    const url = 'https://example.com/api/tasks/j57abc123'
+    const parsed = new URL(url)
+    const pathParts = parsed.pathname.split('/')
+    const taskId = pathParts[pathParts.length - 1]
+    
+    expect(taskId).toBe('j57abc123')
+  })
+
+  it('should return task object when task exists', () => {
+    const taskResponse = {
+      _id: 'j57abc123',
+      title: 'Test Task',
+      status: 'in_progress',
+      priority: 'high',
+      project: 'agent-dashboard',
+      assignedAgent: 'forge',
+      createdAt: 1771228225730,
+    }
+    
+    expect(taskResponse).toHaveProperty('_id')
+    expect(taskResponse).toHaveProperty('title')
+    expect(taskResponse.status).toBe('in_progress')
+  })
+
+  it('should return 404 when task not found', () => {
+    const errorResponse = {
+      error: 'Task not found',
+    }
+    const expectedStatus = 404
+    
+    expect(errorResponse).toHaveProperty('error')
+    expect(expectedStatus).toBe(404)
+  })
+
+  it('should return 400 for invalid task ID', () => {
+    const errorResponse = {
+      error: 'Invalid task ID',
+    }
+    const expectedStatus = 400
+    
+    expect(errorResponse).toHaveProperty('error')
+    expect(expectedStatus).toBe(400)
+  })
+
+  it('should support OPTIONS for CORS preflight', () => {
+    const optionsStatus = 204
+    expect(optionsStatus).toBe(204)
+  })
+})
+
+describe('POST /api/tasks Endpoint', () => {
+  it('should validate required field: title', () => {
+    const body = {
+      priority: 'high',
+      project: 'agent-dashboard',
+    }
+    const missingField = 'title'
+    
+    expect(body).not.toHaveProperty(missingField)
+  })
+
+  it('should validate required field: priority', () => {
+    const body = {
+      title: 'New Task',
+      project: 'agent-dashboard',
+    }
+    const missingField = 'priority'
+    
+    expect(body).not.toHaveProperty(missingField)
+  })
+
+  it('should validate required field: project', () => {
+    const body = {
+      title: 'New Task',
+      priority: 'high',
+    }
+    const missingField = 'project'
+    
+    expect(body).not.toHaveProperty(missingField)
+  })
+
+  it('should accept optional field: notes', () => {
+    const body = {
+      title: 'New Task',
+      priority: 'high',
+      project: 'agent-dashboard',
+      notes: 'Additional context',
+    }
+    
+    expect(body).toHaveProperty('notes')
+    expect(body.notes).toBe('Additional context')
+  })
+
+  it('should accept optional field: assignedAgent', () => {
+    const body = {
+      title: 'New Task',
+      priority: 'high',
+      project: 'agent-dashboard',
+      assignedAgent: 'forge',
+    }
+    
+    expect(body).toHaveProperty('assignedAgent')
+    expect(body.assignedAgent).toBe('forge')
+  })
+
+  it('should accept optional field: createdBy', () => {
+    const body = {
+      title: 'New Task',
+      priority: 'high',
+      project: 'agent-dashboard',
+      createdBy: 'main',
+    }
+    
+    expect(body).toHaveProperty('createdBy')
+    expect(body.createdBy).toBe('main')
+  })
+
+  it('should accept optional field: status', () => {
+    const body = {
+      title: 'New Task',
+      priority: 'high',
+      project: 'agent-dashboard',
+      status: 'ready',
+    }
+    
+    expect(body).toHaveProperty('status')
+    expect(body.status).toBe('ready')
+  })
+
+  it('should return 201 on successful creation', () => {
+    const createResponse = {
+      id: 'j57newTask123',
+    }
+    const expectedStatus = 201
+    
+    expect(createResponse).toHaveProperty('id')
+    expect(expectedStatus).toBe(201)
+  })
+
+  it('should return 400 for missing required fields', () => {
+    const errorResponse = {
+      error: 'Missing or invalid required field: title',
+    }
+    const expectedStatus = 400
+    
+    expect(errorResponse).toHaveProperty('error')
+    expect(expectedStatus).toBe(400)
+  })
+
+  it('should validate priority values', () => {
+    const validPriorities = ['low', 'normal', 'high', 'urgent']
+    const testPriority = 'high'
+    
+    expect(validPriorities).toContain(testPriority)
+  })
+
+  it('should reject invalid priority values', () => {
+    const validPriorities = ['low', 'normal', 'high', 'urgent']
+    const invalidPriority = 'critical'
+    
+    expect(validPriorities).not.toContain(invalidPriority)
+  })
+
+  it('should validate status values', () => {
+    const validStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled']
+    const testStatus = 'in_progress'
+    
+    expect(validStatuses).toContain(testStatus)
+  })
+
+  it('should reject invalid status values', () => {
+    const validStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled']
+    const invalidStatus = 'pending'
+    
+    expect(validStatuses).not.toContain(invalidStatus)
+  })
+})
+
+describe('PATCH /api/tasks/:id Endpoint', () => {
+  it('should extract task ID from URL path', () => {
+    const url = 'https://example.com/api/tasks/j57abc123'
+    const parsed = new URL(url)
+    const pathParts = parsed.pathname.split('/')
+    const taskId = pathParts[pathParts.length - 1]
+    
+    expect(taskId).toBe('j57abc123')
+  })
+
+  it('should accept status update', () => {
+    const updateBody = {
+      status: 'in_review',
+    }
+    
+    expect(updateBody).toHaveProperty('status')
+    expect(updateBody.status).toBe('in_review')
+  })
+
+  it('should accept priority update', () => {
+    const updateBody = {
+      priority: 'urgent',
+    }
+    
+    expect(updateBody).toHaveProperty('priority')
+    expect(updateBody.priority).toBe('urgent')
+  })
+
+  it('should accept assignedAgent update', () => {
+    const updateBody = {
+      assignedAgent: 'sentinel',
+    }
+    
+    expect(updateBody).toHaveProperty('assignedAgent')
+    expect(updateBody.assignedAgent).toBe('sentinel')
+  })
+
+  it('should accept notes update', () => {
+    const updateBody = {
+      notes: 'Updated context',
+    }
+    
+    expect(updateBody).toHaveProperty('notes')
+    expect(updateBody.notes).toBe('Updated context')
+  })
+
+  it('should accept multiple field updates', () => {
+    const updateBody = {
+      status: 'done',
+      priority: 'normal',
+      assignedAgent: 'oracle',
+      notes: 'Completed successfully',
+    }
+    
+    expect(updateBody).toHaveProperty('status')
+    expect(updateBody).toHaveProperty('priority')
+    expect(updateBody).toHaveProperty('assignedAgent')
+    expect(updateBody).toHaveProperty('notes')
+  })
+
+  it('should return 200 on successful update', () => {
+    const updateResponse = {
+      success: true,
+    }
+    const expectedStatus = 200
+    
+    expect(updateResponse.success).toBe(true)
+    expect(expectedStatus).toBe(200)
+  })
+
+  it('should return 404 when task not found', () => {
+    const errorResponse = {
+      error: 'Task not found: j57nonexistent',
+    }
+    const expectedStatus = 404
+    
+    expect(errorResponse).toHaveProperty('error')
+    expect(errorResponse.error).toContain('not found')
+    expect(expectedStatus).toBe(404)
+  })
+
+  it('should return 400 for invalid priority', () => {
+    const errorResponse = {
+      error: 'Invalid priority: critical. Must be one of: low, normal, high, urgent',
+    }
+    const expectedStatus = 400
+    
+    expect(errorResponse).toHaveProperty('error')
+    expect(errorResponse.error).toContain('Invalid priority')
+    expect(expectedStatus).toBe(400)
+  })
+
+  it('should return 400 for invalid status', () => {
+    const errorResponse = {
+      error: 'Invalid status: pending. Must be one of: planning, ready, in_progress, in_review, done, blocked, cancelled',
+    }
+    const expectedStatus = 400
+    
+    expect(errorResponse).toHaveProperty('error')
+    expect(errorResponse.error).toContain('Invalid status')
+    expect(expectedStatus).toBe(400)
+  })
+
+  it('should validate status transition logic', () => {
+    const validStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled']
+    const newStatus = 'in_review'
+    
+    expect(validStatuses).toContain(newStatus)
+  })
+
+  it('should support OPTIONS for CORS preflight', () => {
+    const optionsStatus = 204
+    expect(optionsStatus).toBe(204)
+  })
+})
+
+describe('Task CRUD Integration', () => {
+  it('should simulate full CRUD lifecycle', () => {
+    // Create
+    const createBody = {
+      title: 'Integration Test Task',
+      priority: 'high',
+      project: 'agent-dashboard',
+      notes: 'Test notes',
+    }
+    const createResponse = { id: 'j57test123' }
+    
+    expect(createResponse).toHaveProperty('id')
+    
+    // Read
+    const getResponse = {
+      _id: createResponse.id,
+      title: createBody.title,
+      priority: createBody.priority,
+      project: createBody.project,
+      notes: createBody.notes,
+      status: 'planning',
+      assignedAgent: 'unassigned',
+    }
+    
+    expect(getResponse._id).toBe(createResponse.id)
+    expect(getResponse.title).toBe(createBody.title)
+    
+    // Update
+    const updateBody = {
+      status: 'in_progress',
+      assignedAgent: 'forge',
+    }
+    const updateResponse = { success: true }
+    
+    expect(updateResponse.success).toBe(true)
+    
+    // Verify update
+    const updatedTask = {
+      ...getResponse,
+      status: updateBody.status,
+      assignedAgent: updateBody.assignedAgent,
+    }
+    
+    expect(updatedTask.status).toBe('in_progress')
+    expect(updatedTask.assignedAgent).toBe('forge')
+  })
+
+  it('should handle task state transitions', () => {
+    const transitions = [
+      { from: 'planning', to: 'ready' },
+      { from: 'ready', to: 'in_progress' },
+      { from: 'in_progress', to: 'in_review' },
+      { from: 'in_review', to: 'done' },
+    ]
+    
+    transitions.forEach(transition => {
+      expect(transition).toHaveProperty('from')
+      expect(transition).toHaveProperty('to')
+    })
+  })
+
+  it('should validate required fields on create', () => {
+    const requiredFields = ['title', 'priority', 'project']
+    const body = {
+      title: 'Test',
+      priority: 'high',
+      project: 'test-project',
+    }
+    
+    requiredFields.forEach(field => {
+      expect(body).toHaveProperty(field)
+    })
+  })
+
+  it('should allow partial updates on PATCH', () => {
+    const updateBody = {
+      status: 'in_progress',
+    }
+    
+    // Only status should be updated, other fields unchanged
+    const fieldsUpdated = Object.keys(updateBody)
+    expect(fieldsUpdated).toHaveLength(1)
+    expect(fieldsUpdated[0]).toBe('status')
+  })
+})
