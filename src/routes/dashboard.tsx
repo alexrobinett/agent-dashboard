@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from 'convex/react'
 import { convex } from '../lib/convex'
 import { api } from '../../convex/_generated/api'
-import { Suspense } from 'react'
+import { Suspense, useEffect, useRef } from 'react'
 
 export const Route = createFileRoute('/dashboard')({
   loader: async () => {
@@ -30,9 +30,47 @@ function DashboardPage() {
 }
 
 function DashboardComponent({ initialData }: { initialData: any }) {
+  // Track SSR-to-subscription handoff timing
+  const mountTimeRef = useRef<number>(Date.now())
+  const ssrDataUsedRef = useRef<boolean>(false)
+  const subscriptionActiveRef = useRef<boolean>(false)
+  
   // Live subscription: Convex useQuery automatically subscribes via WebSocket
   // and keeps data in sync. Falls back to initialData during SSR hydration.
   const tasks = useQuery(api.tasks.getByStatus, {}) ?? initialData
+
+  // Log SSR hydration timing (runs once on mount)
+  useEffect(() => {
+    const mountTime = mountTimeRef.current
+    const hydrationTime = Date.now() - mountTime
+    const isUsingSSRData = tasks === initialData
+    
+    console.log('[SSR Handoff] Component mounted', {
+      timestamp: new Date().toISOString(),
+      hydrationTime: `${hydrationTime}ms`,
+      usingSSRData: isUsingSSRData,
+    })
+    
+    ssrDataUsedRef.current = true
+  }, [])
+
+  // Log WebSocket subscription status
+  useEffect(() => {
+    // If tasks changed from initialData, subscription is active
+    const isLiveData = tasks !== initialData
+    
+    if (isLiveData && !subscriptionActiveRef.current) {
+      const handoffTime = Date.now() - mountTimeRef.current
+      
+      console.log('[SSR Handoff] WebSocket subscription active', {
+        timestamp: new Date().toISOString(),
+        handoffTime: `${handoffTime}ms`,
+        ssrDataWasUsed: ssrDataUsedRef.current,
+      })
+      
+      subscriptionActiveRef.current = true
+    }
+  }, [tasks, initialData])
 
   const statusOrder = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
   
