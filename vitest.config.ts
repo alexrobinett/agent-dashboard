@@ -18,6 +18,7 @@ export default defineConfig({
         '.output/',
         '.tanstack/',
         'convex/_generated/',
+        'convex/http.ts', // HTTP handlers tested via integration tests
         'src/routeTree.gen.ts',
         '**/*.config.ts',
         '**/*.config.js',
