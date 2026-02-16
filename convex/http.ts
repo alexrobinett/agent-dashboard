@@ -3,23 +3,56 @@ import { httpRouter, httpActionGeneric } from 'convex/server'
 const http = httpRouter()
 
 /**
- * CORS configuration for web dashboard
- * Allows requests from the dashboard origin
+ * Get allowed CORS origins from environment
+ * Supports comma-separated list of origins
+ * Falls back to wildcard (*) if not configured (development mode)
  */
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*', // TODO: Restrict to dashboard domain in production
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Max-Age': '86400',
+function getAllowedOrigins(): string[] {
+  const origins = process.env.ALLOWED_ORIGINS
+  if (origins) {
+    return origins.split(',').map((o) => o.trim())
+  }
+  // Development fallback: allow all origins
+  return ['*']
+}
+
+/**
+ * CORS configuration for web dashboard
+ * Configurable via ALLOWED_ORIGINS environment variable
+ */
+const corsConfig = {
+  allowedOrigins: getAllowedOrigins(),
+  methods: 'GET, POST, PUT, DELETE, OPTIONS',
+  headers: 'Content-Type, Authorization',
+  maxAge: '86400',
 }
 
 /**
  * Helper to add CORS headers to response
+ * Supports origin-specific responses for security
  */
-function withCors(response: Response): Response {
-  Object.entries(corsHeaders).forEach(([key, value]) => {
-    response.headers.set(key, value)
-  })
+function withCors(response: Response, requestOrigin?: string): Response {
+  const { allowedOrigins, methods, headers, maxAge } = corsConfig
+
+  // Determine which origin to allow
+  let allowOrigin = '*'
+  if (!allowedOrigins.includes('*')) {
+    // If request origin is in allowed list, use it
+    // Otherwise, use first allowed origin as fallback
+    if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+      allowOrigin = requestOrigin
+    } else {
+      allowOrigin = allowedOrigins[0]
+    }
+    // Also set Vary header for proper caching
+    response.headers.set('Vary', 'Origin')
+  }
+
+  response.headers.set('Access-Control-Allow-Origin', allowOrigin)
+  response.headers.set('Access-Control-Allow-Methods', methods)
+  response.headers.set('Access-Control-Allow-Headers', headers)
+  response.headers.set('Access-Control-Max-Age', maxAge)
+
   return response
 }
 

@@ -58,6 +58,12 @@ Edit `.env.local` with your configuration:
 # Convex
 CONVEX_URL=https://your-project.convex.cloud
 
+# CORS Configuration (optional)
+# Comma-separated list of allowed origins for API requests
+# Leave empty or set to '*' for development (allows all origins)
+# Set to specific domains in production for security
+ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
+
 # Better Auth
 AUTH_SECRET=your-secret-key
 GITHUB_CLIENT_ID=your-github-oauth-client-id
@@ -66,6 +72,14 @@ GITHUB_CLIENT_SECRET=your-github-oauth-client-secret
 # App URL
 PUBLIC_APP_URL=http://localhost:3000
 ```
+
+**CORS Security:**
+
+The API uses environment-based CORS configuration for security:
+
+- **Development:** Set `ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173` or leave empty to allow all origins
+- **Production:** Set `ALLOWED_ORIGINS=https://yourdomain.com` to restrict API access to your dashboard domain
+- Multiple origins supported: `ALLOWED_ORIGINS=https://app.example.com,https://dashboard.example.com`
 
 4. **Run the development server**
 
