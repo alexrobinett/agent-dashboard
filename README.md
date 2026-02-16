@@ -81,6 +81,120 @@ pnpm dev
 
 Navigate to [http://localhost:3000](http://localhost:3000)
 
+## 🔄 Development Workflow
+
+### Hot Reload & Live Updates
+
+This project uses **concurrent development servers** for optimal DX:
+
+1. **Convex Dev Server** (`pnpm convex:dev`)
+   - Runs on port 3210 (default)
+   - Hot reloads backend code automatically
+   - Pushes schema changes to Convex cloud
+   - Generates TypeScript types on save
+
+2. **Vite Dev Server** (`pnpm dev`)
+   - Runs on port 3000
+   - Hot Module Replacement (HMR) for instant updates
+   - Fast refresh for React components
+   - Connects to Convex via WebSocket
+
+### Recommended Workflow
+
+**Terminal Setup:**
+```bash
+# Terminal 1: Convex dev server (leave running)
+pnpm convex:dev
+
+# Terminal 2: Vite dev server (leave running)
+pnpm dev
+
+# Terminal 3: Run tests in watch mode (optional)
+pnpm test:watch
+```
+
+### What Happens When You Edit Files
+
+| File Type | Hot Reload Behavior | Need Refresh? |
+|-----------|-------------------|--------------|
+| `src/**/*.tsx` | ⚡ Instant HMR | No |
+| `src/**/*.ts` | ⚡ Instant HMR | No |
+| `convex/**/*.ts` | 🔄 Auto-regenerates types | No* |
+| `*.config.ts` | 🔄 Requires restart | Yes |
+| `.env` | 🔄 Requires restart | Yes |
+
+*Convex changes regenerate types automatically, but your IDE may need a moment to pick them up.
+
+### Verifying Hot Reload Works
+
+**Test Frontend HMR:**
+```bash
+# 1. Open http://localhost:3000/dashboard
+# 2. Edit src/routes/dashboard.tsx (change some text)
+# 3. Save the file
+# ✅ Browser should update instantly without full reload
+```
+
+**Test Convex Hot Reload:**
+```bash
+# 1. Edit convex/tasks.ts (add a console.log)
+# 2. Save the file
+# 3. Check Convex terminal
+# ✅ You should see "Convex functions updated"
+# ✅ TypeScript types regenerate automatically
+```
+
+### Concurrent Dev Servers
+
+Both servers run independently and don't conflict:
+
+- **Convex** listens on port 3210 (configurable)
+- **Vite** listens on port 3000 (configurable)
+- **WebSocket** connection established automatically
+
+You should see in the browser console:
+```
+[Convex] Connected to Convex cloud
+[Vite] connected
+```
+
+### Troubleshooting
+
+**WebSocket connection errors:**
+```bash
+# Check Convex is running
+pnpm convex:dev
+
+# Verify VITE_CONVEX_URL in .env matches your deployment
+```
+
+**Types not updating after Convex changes:**
+```bash
+# Restart TypeScript server in your IDE
+# VS Code: Cmd+Shift+P → "TypeScript: Restart TS Server"
+
+# Or restart Convex dev server
+# Ctrl+C and run: pnpm convex:dev
+```
+
+**Port already in use:**
+```bash
+# Change Vite port
+pnpm dev -- --port 3001
+
+# Or kill existing process
+lsof -ti:3000 | xargs kill -9
+```
+
+**HMR not working:**
+```bash
+# Clear Vite cache
+rm -rf node_modules/.vite
+
+# Restart dev server
+pnpm dev
+```
+
 ## 📁 Project Structure
 
 ```
