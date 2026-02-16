@@ -47,6 +47,15 @@ function DashboardPage() {
 }
 
 function DashboardComponent({ initialData }: { initialData: any }) {
+  // Avoid Convex React hooks during SSR; hydrate with loader data first.
+  if (typeof window === 'undefined') {
+    return <DashboardBoard tasks={initialData} />
+  }
+
+  return <DashboardLiveComponent initialData={initialData} />
+}
+
+function DashboardLiveComponent({ initialData }: { initialData: any }) {
   // Track SSR-to-subscription handoff timing
   const mountTimeRef = useRef<number>(Date.now())
   const ssrDataUsedRef = useRef<boolean>(false)
@@ -54,7 +63,13 @@ function DashboardComponent({ initialData }: { initialData: any }) {
   
   // Live subscription: Convex useQuery automatically subscribes via WebSocket
   // and keeps data in sync. Falls back to initialData during SSR hydration.
-  const tasks = useQuery(api.tasks.getByStatus, {}) ?? initialData
+  let liveTasks: any
+  try {
+    liveTasks = useQuery(api.tasks.getByStatus, {})
+  } catch {
+    liveTasks = undefined
+  }
+  const tasks = liveTasks ?? initialData
 
   // Log SSR hydration timing (runs once on mount)
   useEffect(() => {
@@ -89,8 +104,12 @@ function DashboardComponent({ initialData }: { initialData: any }) {
     }
   }, [tasks, initialData])
 
+  return <DashboardBoard tasks={tasks} />
+}
+
+function DashboardBoard({ tasks }: { tasks: any }) {
   const statusOrder = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
-  
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto">
