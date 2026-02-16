@@ -56,6 +56,7 @@ export const api = {
     list: {} as any,
     getByStatus: {} as any,
     getWorkload: {} as any,
+    listFiltered: {} as any,
   },
 };
 EOF

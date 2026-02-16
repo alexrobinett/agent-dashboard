@@ -118,6 +118,64 @@ http.route({
 })
 
 /**
+ * Tasks list endpoint with filtering and pagination
+ * GET /api/tasks
+ * Query params: status, priority, project, assignedAgent, limit, offset
+ * Returns: Filtered task list with pagination metadata
+ */
+http.route({
+  path: '/api/tasks',
+  method: 'GET',
+  handler: httpActionGeneric(async (ctx, request) => {
+    // Parse query parameters from URL
+    const url = new URL(request.url)
+    const status = url.searchParams.get('status') || undefined
+    const priority = url.searchParams.get('priority') || undefined
+    const project = url.searchParams.get('project') || undefined
+    const assignedAgent = url.searchParams.get('assignedAgent') || undefined
+    const limit = url.searchParams.get('limit') ? parseInt(url.searchParams.get('limit')!, 10) : undefined
+    const offset = url.searchParams.get('offset') ? parseInt(url.searchParams.get('offset')!, 10) : undefined
+    
+    // Query filtered tasks
+    const result = await ctx.runQuery(api.tasks.listFiltered, {
+      status,
+      priority,
+      project,
+      assignedAgent,
+      limit,
+      offset,
+    })
+    
+    return withCors(
+      new Response(
+        JSON.stringify(result),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      )
+    )
+  }),
+})
+
+/**
+ * OPTIONS handler for /api/tasks CORS preflight
+ */
+http.route({
+  path: '/api/tasks',
+  method: 'OPTIONS',
+  handler: httpActionGeneric(async () => {
+    return withCors(
+      new Response(null, {
+        status: 204,
+      })
+    )
+  }),
+})
+
+/**
  * Agent workload endpoint
  * GET /api/workload
  * Returns: Agent workload statistics
