@@ -37,12 +37,12 @@ test.describe('Dashboard Smoke Test', () => {
     await dashboardPage.waitForLoad()
 
     // Verify all columns are visible
-    await expect(dashboardPage.planningColumn).toBeVisible()
-    await expect(dashboardPage.readyColumn).toBeVisible()
-    await expect(dashboardPage.inProgressColumn).toBeVisible()
-    await expect(dashboardPage.inReviewColumn).toBeVisible()
-    await expect(dashboardPage.doneColumn).toBeVisible()
-    await expect(dashboardPage.blockedColumn).toBeVisible()
+    await expect(dashboardPage.planningHeading).toBeVisible()
+    await expect(dashboardPage.readyHeading).toBeVisible()
+    await expect(dashboardPage.inProgressHeading).toBeVisible()
+    await expect(dashboardPage.inReviewHeading).toBeVisible()
+    await expect(dashboardPage.doneHeading).toBeVisible()
+    await expect(dashboardPage.blockedHeading).toBeVisible()
 
     // Verify using the helper method
     const allColumnsVisible = await dashboardPage.areAllColumnsVisible()
@@ -68,12 +68,12 @@ test.describe('Dashboard Smoke Test', () => {
 
     // Verify column headers contain expected text
     // (Adjust these selectors based on actual implementation)
-    const planningHeader = page.locator('[data-testid="column-planning"]').locator('h2, h3').first()
-    const readyHeader = page.locator('[data-testid="column-ready"]').locator('h2, h3').first()
-    const inProgressHeader = page.locator('[data-testid="column-in_progress"]').locator('h2, h3').first()
-    const inReviewHeader = page.locator('[data-testid="column-in_review"]').locator('h2, h3').first()
-    const doneHeader = page.locator('[data-testid="column-done"]').locator('h2, h3').first()
-    const blockedHeader = page.locator('[data-testid="column-blocked"]').locator('h2, h3').first()
+    const planningHeader = dashboardPage.planningHeading
+    const readyHeader = dashboardPage.readyHeading
+    const inProgressHeader = dashboardPage.inProgressHeading
+    const inReviewHeader = dashboardPage.inReviewHeading
+    const doneHeader = dashboardPage.doneHeading
+    const blockedHeader = dashboardPage.blockedHeading
 
     // Verify headers are visible (text content may vary, so just check visibility)
     await expect(planningHeader).toBeVisible()
