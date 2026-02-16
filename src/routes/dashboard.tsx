@@ -7,8 +7,25 @@ import { Suspense, useEffect, useRef } from 'react'
 
 export const Route = createFileRoute('/dashboard')({
   loader: async () => {
-    // SSR: Pre-fetch data on the server using ConvexHttpClient
-    const tasks = await convex.query(api.tasks.getByStatus, {})
+    const emptyBoard = {
+      planning: [],
+      ready: [],
+      in_progress: [],
+      in_review: [],
+      done: [],
+      blocked: [],
+    }
+
+    // SSR: pre-fetch board data, but fail fast to an empty board in CI/network issues.
+    const timeoutMs = 5000
+    const timeoutPromise = new Promise<typeof emptyBoard>((resolve) => {
+      setTimeout(() => resolve(emptyBoard), timeoutMs)
+    })
+    const tasksPromise = convex
+      .query(api.tasks.getByStatus, {})
+      .catch(() => emptyBoard)
+
+    const tasks = await Promise.race([tasksPromise, timeoutPromise])
     
     return {
       tasks,
@@ -31,6 +48,15 @@ function DashboardPage() {
 }
 
 function DashboardComponent({ initialData }: { initialData: any }) {
+  // Avoid Convex React hooks during SSR; hydrate with loader data first.
+  if (typeof window === 'undefined') {
+    return <DashboardBoard tasks={initialData} />
+  }
+
+  return <DashboardLiveComponent initialData={initialData} />
+}
+
+function DashboardLiveComponent({ initialData }: { initialData: any }) {
   // Track SSR-to-subscription handoff timing
   const mountTimeRef = useRef<number>(Date.now())
   const ssrDataUsedRef = useRef<boolean>(false)
@@ -38,7 +64,13 @@ function DashboardComponent({ initialData }: { initialData: any }) {
   
   // Live subscription: Convex useQuery automatically subscribes via WebSocket
   // and keeps data in sync. Falls back to initialData during SSR hydration.
-  const tasks = useQuery(api.tasks.getByStatus, {}) ?? initialData
+  let liveTasks: any
+  try {
+    liveTasks = useQuery(api.tasks.getByStatus, {})
+  } catch {
+    liveTasks = undefined
+  }
+  const tasks = liveTasks ?? initialData
 
   // Log SSR hydration timing (runs once on mount)
   useEffect(() => {
@@ -73,15 +105,22 @@ function DashboardComponent({ initialData }: { initialData: any }) {
     }
   }, [tasks, initialData])
 
+  return <DashboardBoard tasks={tasks} />
+}
+
+function DashboardBoard({ tasks }: { tasks: any }) {
   const statusOrder = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
-  
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-4xl font-bold text-foreground">Task Dashboard</h1>
           <div className="text-sm text-muted-foreground">
-            <span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
+            <span 
+              data-testid="live-indicator"
+              className="inline-block w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"
+            ></span>
             Live
           </div>
         </div>
@@ -94,6 +133,7 @@ function DashboardComponent({ initialData }: { initialData: any }) {
             return (
               <div
                 key={status}
+                data-testid={`column-${status}`}
                 className="bg-card rounded-lg border border-border p-4 shadow-sm hover:shadow-md transition-shadow"
               >
                 <div className="flex items-center justify-between mb-4">

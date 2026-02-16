@@ -7,13 +7,13 @@ import { type Page, type Locator } from '@playwright/test'
 export class DashboardPage {
   readonly page: Page
   
-  // Status columns
-  readonly planningColumn: Locator
-  readonly readyColumn: Locator
-  readonly inProgressColumn: Locator
-  readonly inReviewColumn: Locator
-  readonly doneColumn: Locator
-  readonly blockedColumn: Locator
+  // Status headings
+  readonly planningHeading: Locator
+  readonly readyHeading: Locator
+  readonly inProgressHeading: Locator
+  readonly inReviewHeading: Locator
+  readonly doneHeading: Locator
+  readonly blockedHeading: Locator
   
   // Live indicator
   readonly liveIndicator: Locator
@@ -24,16 +24,16 @@ export class DashboardPage {
   constructor(page: Page) {
     this.page = page
     
-    // Locate status columns by data-testid
-    this.planningColumn = page.locator('[data-testid="column-planning"]')
-    this.readyColumn = page.locator('[data-testid="column-ready"]')
-    this.inProgressColumn = page.locator('[data-testid="column-in_progress"]')
-    this.inReviewColumn = page.locator('[data-testid="column-in_review"]')
-    this.doneColumn = page.locator('[data-testid="column-done"]')
-    this.blockedColumn = page.locator('[data-testid="column-blocked"]')
+    // Locate column headings by visible text (more stable across markup changes)
+    this.planningHeading = page.getByRole('heading', { name: /^planning$/i })
+    this.readyHeading = page.getByRole('heading', { name: /^ready$/i })
+    this.inProgressHeading = page.getByRole('heading', { name: /^in progress$/i })
+    this.inReviewHeading = page.getByRole('heading', { name: /^in review$/i })
+    this.doneHeading = page.getByRole('heading', { name: /^done$/i })
+    this.blockedHeading = page.getByRole('heading', { name: /^blocked$/i })
     
     // Live indicator
-    this.liveIndicator = page.locator('[data-testid="live-indicator"]')
+    this.liveIndicator = page.getByText(/^live$/i).first()
     
     // Error states
     this.errorMessage = page.locator('[role="alert"]')
@@ -50,8 +50,8 @@ export class DashboardPage {
    * Wait for the dashboard to be fully loaded
    */
   async waitForLoad() {
-    // Wait for at least one column to be visible
-    await this.planningColumn.waitFor({ state: 'visible' })
+    await this.page.getByRole('heading', { name: /task dashboard/i }).waitFor({ state: 'visible' })
+    await this.planningHeading.waitFor({ state: 'visible' })
   }
 
   /**
@@ -59,17 +59,17 @@ export class DashboardPage {
    * @returns true if all columns are visible
    */
   async areAllColumnsVisible(): Promise<boolean> {
-    const columns = [
-      this.planningColumn,
-      this.readyColumn,
-      this.inProgressColumn,
-      this.inReviewColumn,
-      this.doneColumn,
-      this.blockedColumn,
+    const headings = [
+      this.planningHeading,
+      this.readyHeading,
+      this.inProgressHeading,
+      this.inReviewHeading,
+      this.doneHeading,
+      this.blockedHeading,
     ]
     
-    for (const column of columns) {
-      const isVisible = await column.isVisible()
+    for (const heading of headings) {
+      const isVisible = await heading.isVisible()
       if (!isVisible) return false
     }
     
@@ -90,9 +90,8 @@ export class DashboardPage {
    * @returns Number of tasks in the column
    */
   async getTaskCount(columnName: string): Promise<number> {
-    const column = this.getColumnByName(columnName)
-    const tasks = column.locator('[data-testid^="task-"]')
-    return await tasks.count()
+    const column = this.getColumnContainerByName(columnName)
+    return await column.locator('h3').count()
   }
 
   /**
@@ -100,20 +99,20 @@ export class DashboardPage {
    * @param columnName - Name of the column
    * @returns Locator for the column
    */
-  private getColumnByName(columnName: string): Locator {
+  private getColumnContainerByName(columnName: string): Locator {
     switch (columnName) {
       case 'planning':
-        return this.planningColumn
+        return this.planningHeading.locator('..').locator('..')
       case 'ready':
-        return this.readyColumn
+        return this.readyHeading.locator('..').locator('..')
       case 'in_progress':
-        return this.inProgressColumn
+        return this.inProgressHeading.locator('..').locator('..')
       case 'in_review':
-        return this.inReviewColumn
+        return this.inReviewHeading.locator('..').locator('..')
       case 'done':
-        return this.doneColumn
+        return this.doneHeading.locator('..').locator('..')
       case 'blocked':
-        return this.blockedColumn
+        return this.blockedHeading.locator('..').locator('..')
       default:
         throw new Error(`Unknown column name: ${columnName}`)
     }

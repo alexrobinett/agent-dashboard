@@ -28,12 +28,13 @@ export default defineConfig({
     ['html'],
     ['github'],
     ['list'],
+    ['json', { outputFile: 'test-results/results.json' }],
   ],
   
   /* Shared settings for all the projects below */
   use: {
     /* Base URL to use in actions like `await page.goto('/')` */
-    baseURL: process.env.BASE_URL || 'http://localhost:3000',
+    baseURL: process.env.BASE_URL || 'http://localhost:4173',
     
     /* Collect trace when retrying the failed test */
     trace: 'on-first-retry',
@@ -74,10 +75,13 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    // In CI: serve production build. Locally: use dev server with HMR
-    command: process.env.CI ? 'pnpm preview --port 3000' : 'pnpm dev',
-    url: 'http://localhost:3000',
+    // Use dev server in all environments to avoid Nitro preview build artifact requirements.
+    command: 'pnpm dev --port 4173',
+    port: 4173,
     reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
+    timeout: 120000,
+    env: {
+      VITE_CONVEX_URL: process.env.VITE_CONVEX_URL || 'https://tacit-bulldog-295.convex.cloud',
+    },
   },
 })
