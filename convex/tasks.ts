@@ -1,4 +1,5 @@
 import { query } from './_generated/server'
+import { v } from 'convex/values'
 
 export const list = query({
   handler: async (ctx) => {
@@ -64,5 +65,57 @@ export const getWorkload = query({
     }
     
     return workload
+  },
+})
+
+export const listFiltered = query({
+  args: {
+    status: v.optional(v.string()),
+    priority: v.optional(v.string()),
+    project: v.optional(v.string()),
+    assignedAgent: v.optional(v.string()),
+    limit: v.optional(v.number()),
+    offset: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = typeof args?.limit === 'number' ? args.limit : 50
+    const offset = typeof args?.offset === 'number' ? args.offset : 0
+    
+    // Fetch more tasks than needed to handle filtering
+    const allTasks = await ctx.db.query('tasks').order('desc').take(1000)
+    
+    // Apply filters
+    let filtered = allTasks
+    
+    if (args?.status) {
+      const status = args.status
+      filtered = filtered.filter(task => task.status === status)
+    }
+    
+    if (args?.priority) {
+      const priority = args.priority
+      filtered = filtered.filter(task => task.priority === priority)
+    }
+    
+    if (args?.project) {
+      const project = args.project
+      filtered = filtered.filter(task => task.project === project)
+    }
+    
+    if (args?.assignedAgent) {
+      const assignedAgent = args.assignedAgent
+      filtered = filtered.filter(task => task.assignedAgent === assignedAgent)
+    }
+    
+    // Apply pagination
+    const paginated = filtered.slice(offset, offset + limit)
+    
+    return {
+      tasks: paginated,
+      total: filtered.length,
+      limit,
+      offset,
+      hasMore: offset + limit < filtered.length,
+    }
   },
 })

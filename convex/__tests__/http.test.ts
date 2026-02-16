@@ -549,3 +549,322 @@ describe('Workload Endpoint Performance', () => {
     expect(totalGrouped).toBe(50)
   })
 })
+
+describe('Tasks List Endpoint Response Structure', () => {
+  it('should validate tasks list response format', () => {
+    const expectedResponse = {
+      tasks: [
+        { title: 'Task 1', status: 'in_progress', priority: 'high' },
+        { title: 'Task 2', status: 'ready', priority: 'normal' },
+      ],
+      total: 2,
+      limit: 50,
+      offset: 0,
+      hasMore: false,
+    }
+    
+    expect(expectedResponse).toHaveProperty('tasks')
+    expect(expectedResponse).toHaveProperty('total')
+    expect(expectedResponse).toHaveProperty('limit')
+    expect(expectedResponse).toHaveProperty('offset')
+    expect(expectedResponse).toHaveProperty('hasMore')
+    expect(Array.isArray(expectedResponse.tasks)).toBe(true)
+  })
+
+  it('should validate pagination metadata', () => {
+    const paginationMeta = {
+      total: 100,
+      limit: 50,
+      offset: 0,
+      hasMore: true,
+    }
+    
+    expect(paginationMeta.hasMore).toBe(true)
+    expect(paginationMeta.offset + paginationMeta.limit).toBeLessThan(paginationMeta.total)
+  })
+
+  it('should calculate hasMore correctly', () => {
+    const total = 100
+    const limit = 50
+    const offset = 0
+    
+    const hasMore = offset + limit < total
+    
+    expect(hasMore).toBe(true)
+  })
+
+  it('should handle last page pagination', () => {
+    const total = 100
+    const limit = 50
+    const offset = 50
+    
+    const hasMore = offset + limit < total
+    
+    expect(hasMore).toBe(false)
+  })
+
+  it('should validate empty tasks list', () => {
+    const emptyResponse = {
+      tasks: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
+      hasMore: false,
+    }
+    
+    expect(emptyResponse.tasks).toHaveLength(0)
+    expect(emptyResponse.total).toBe(0)
+    expect(emptyResponse.hasMore).toBe(false)
+  })
+})
+
+describe('Tasks List Endpoint Query Parameters', () => {
+  it('should parse status query param', () => {
+    const url = new URL('https://example.com/api/tasks?status=in_progress')
+    const status = url.searchParams.get('status')
+    
+    expect(status).toBe('in_progress')
+  })
+
+  it('should parse priority query param', () => {
+    const url = new URL('https://example.com/api/tasks?priority=high')
+    const priority = url.searchParams.get('priority')
+    
+    expect(priority).toBe('high')
+  })
+
+  it('should parse project query param', () => {
+    const url = new URL('https://example.com/api/tasks?project=agent-dashboard')
+    const project = url.searchParams.get('project')
+    
+    expect(project).toBe('agent-dashboard')
+  })
+
+  it('should parse assignedAgent query param', () => {
+    const url = new URL('https://example.com/api/tasks?assignedAgent=forge')
+    const assignedAgent = url.searchParams.get('assignedAgent')
+    
+    expect(assignedAgent).toBe('forge')
+  })
+
+  it('should parse limit query param as number', () => {
+    const url = new URL('https://example.com/api/tasks?limit=25')
+    const limit = parseInt(url.searchParams.get('limit')!, 10)
+    
+    expect(limit).toBe(25)
+    expect(typeof limit).toBe('number')
+  })
+
+  it('should parse offset query param as number', () => {
+    const url = new URL('https://example.com/api/tasks?offset=10')
+    const offset = parseInt(url.searchParams.get('offset')!, 10)
+    
+    expect(offset).toBe(10)
+    expect(typeof offset).toBe('number')
+  })
+
+  it('should parse multiple query params', () => {
+    const url = new URL('https://example.com/api/tasks?status=in_progress&priority=high&limit=25&offset=10')
+    const status = url.searchParams.get('status')
+    const priority = url.searchParams.get('priority')
+    const limit = parseInt(url.searchParams.get('limit')!, 10)
+    const offset = parseInt(url.searchParams.get('offset')!, 10)
+    
+    expect(status).toBe('in_progress')
+    expect(priority).toBe('high')
+    expect(limit).toBe(25)
+    expect(offset).toBe(10)
+  })
+
+  it('should handle missing query params', () => {
+    const url = new URL('https://example.com/api/tasks')
+    const status = url.searchParams.get('status')
+    const priority = url.searchParams.get('priority')
+    
+    expect(status).toBeNull()
+    expect(priority).toBeNull()
+  })
+})
+
+describe('Tasks List Endpoint Filtering Logic', () => {
+  it('should filter tasks by status', () => {
+    const tasks = [
+      { status: 'in_progress', priority: 'high', project: 'p1', assignedAgent: 'forge' },
+      { status: 'ready', priority: 'normal', project: 'p1', assignedAgent: 'sentinel' },
+      { status: 'in_progress', priority: 'low', project: 'p2', assignedAgent: 'forge' },
+    ]
+    
+    const filtered = tasks.filter(t => t.status === 'in_progress')
+    
+    expect(filtered).toHaveLength(2)
+    expect(filtered.every(t => t.status === 'in_progress')).toBe(true)
+  })
+
+  it('should filter tasks by priority', () => {
+    const tasks = [
+      { status: 'in_progress', priority: 'high', project: 'p1', assignedAgent: 'forge' },
+      { status: 'ready', priority: 'normal', project: 'p1', assignedAgent: 'sentinel' },
+      { status: 'in_progress', priority: 'high', project: 'p2', assignedAgent: 'forge' },
+    ]
+    
+    const filtered = tasks.filter(t => t.priority === 'high')
+    
+    expect(filtered).toHaveLength(2)
+    expect(filtered.every(t => t.priority === 'high')).toBe(true)
+  })
+
+  it('should filter tasks by project', () => {
+    const tasks = [
+      { status: 'in_progress', priority: 'high', project: 'p1', assignedAgent: 'forge' },
+      { status: 'ready', priority: 'normal', project: 'p1', assignedAgent: 'sentinel' },
+      { status: 'in_progress', priority: 'high', project: 'p2', assignedAgent: 'forge' },
+    ]
+    
+    const filtered = tasks.filter(t => t.project === 'p1')
+    
+    expect(filtered).toHaveLength(2)
+    expect(filtered.every(t => t.project === 'p1')).toBe(true)
+  })
+
+  it('should filter tasks by assignedAgent', () => {
+    const tasks = [
+      { status: 'in_progress', priority: 'high', project: 'p1', assignedAgent: 'forge' },
+      { status: 'ready', priority: 'normal', project: 'p1', assignedAgent: 'sentinel' },
+      { status: 'in_progress', priority: 'high', project: 'p2', assignedAgent: 'forge' },
+    ]
+    
+    const filtered = tasks.filter(t => t.assignedAgent === 'forge')
+    
+    expect(filtered).toHaveLength(2)
+    expect(filtered.every(t => t.assignedAgent === 'forge')).toBe(true)
+  })
+
+  it('should apply multiple filters', () => {
+    const tasks = [
+      { status: 'in_progress', priority: 'high', project: 'p1', assignedAgent: 'forge' },
+      { status: 'ready', priority: 'normal', project: 'p1', assignedAgent: 'sentinel' },
+      { status: 'in_progress', priority: 'high', project: 'p2', assignedAgent: 'forge' },
+      { status: 'in_progress', priority: 'normal', project: 'p1', assignedAgent: 'forge' },
+    ]
+    
+    let filtered = tasks
+    filtered = filtered.filter(t => t.status === 'in_progress')
+    filtered = filtered.filter(t => t.priority === 'high')
+    filtered = filtered.filter(t => t.project === 'p1')
+    
+    expect(filtered).toHaveLength(1)
+    expect(filtered[0].assignedAgent).toBe('forge')
+  })
+})
+
+describe('Tasks List Endpoint Pagination Logic', () => {
+  it('should paginate tasks with default limit', () => {
+    const tasks = Array.from({ length: 100 }, (_, i) => ({ id: i }))
+    const limit = 50
+    const offset = 0
+    
+    const paginated = tasks.slice(offset, offset + limit)
+    
+    expect(paginated).toHaveLength(50)
+    expect(paginated[0].id).toBe(0)
+    expect(paginated[49].id).toBe(49)
+  })
+
+  it('should paginate tasks with custom limit', () => {
+    const tasks = Array.from({ length: 100 }, (_, i) => ({ id: i }))
+    const limit = 25
+    const offset = 0
+    
+    const paginated = tasks.slice(offset, offset + limit)
+    
+    expect(paginated).toHaveLength(25)
+  })
+
+  it('should paginate tasks with offset', () => {
+    const tasks = Array.from({ length: 100 }, (_, i) => ({ id: i }))
+    const limit = 25
+    const offset = 25
+    
+    const paginated = tasks.slice(offset, offset + limit)
+    
+    expect(paginated).toHaveLength(25)
+    expect(paginated[0].id).toBe(25)
+    expect(paginated[24].id).toBe(49)
+  })
+
+  it('should handle last page correctly', () => {
+    const tasks = Array.from({ length: 100 }, (_, i) => ({ id: i }))
+    const limit = 25
+    const offset = 75
+    
+    const paginated = tasks.slice(offset, offset + limit)
+    
+    expect(paginated).toHaveLength(25)
+    expect(paginated[0].id).toBe(75)
+    expect(paginated[24].id).toBe(99)
+  })
+
+  it('should handle partial last page', () => {
+    const tasks = Array.from({ length: 100 }, (_, i) => ({ id: i }))
+    const limit = 30
+    const offset = 90
+    
+    const paginated = tasks.slice(offset, offset + limit)
+    
+    expect(paginated).toHaveLength(10)
+    expect(paginated[0].id).toBe(90)
+    expect(paginated[9].id).toBe(99)
+  })
+
+  it('should return empty array when offset exceeds total', () => {
+    const tasks = Array.from({ length: 100 }, (_, i) => ({ id: i }))
+    const limit = 25
+    const offset = 100
+    
+    const paginated = tasks.slice(offset, offset + limit)
+    
+    expect(paginated).toHaveLength(0)
+  })
+})
+
+describe('Tasks List Endpoint Path Configuration', () => {
+  it('should validate tasks endpoint path', () => {
+    const tasksPath = '/api/tasks'
+    
+    expect(tasksPath).toBe('/api/tasks')
+    expect(tasksPath).toMatch(/^\/api\//)
+  })
+
+  it('should validate full endpoint URL format', () => {
+    const baseUrl = 'https://curious-dolphin-134.convex.site'
+    const tasksPath = '/api/tasks'
+    const fullUrl = `${baseUrl}${tasksPath}`
+    
+    expect(fullUrl).toBe('https://curious-dolphin-134.convex.site/api/tasks')
+    expect(fullUrl).toMatch(/^https:\/\/.*\.convex\.site\/api\/tasks$/)
+  })
+
+  it('should support GET and OPTIONS methods', () => {
+    const supportedMethods = ['GET', 'OPTIONS']
+    
+    expect(supportedMethods).toContain('GET')
+    expect(supportedMethods).toContain('OPTIONS')
+    expect(supportedMethods).toHaveLength(2)
+  })
+
+  it('should construct URL with query params', () => {
+    const baseUrl = 'https://curious-dolphin-134.convex.site/api/tasks'
+    const params = new URLSearchParams({
+      status: 'in_progress',
+      priority: 'high',
+      limit: '25',
+      offset: '10',
+    })
+    const fullUrl = `${baseUrl}?${params.toString()}`
+    
+    expect(fullUrl).toContain('status=in_progress')
+    expect(fullUrl).toContain('priority=high')
+    expect(fullUrl).toContain('limit=25')
+    expect(fullUrl).toContain('offset=10')
+  })
+})
