@@ -1,78 +1,14 @@
-# Dependencies
-node_modules/
-.pnp
-.pnp.js
-
-# Testing
-coverage/
-*.lcov
-.nyc_output
-
-# Production
-dist/
-build/
-.vinxi/
-.output/
-.vercel/
-.netlify/
-
-# Environment variables
-.env
-.env.local
-.env.production.local
-.env.development.local
-.env.test.local
-
-# Convex
-convex/_generated/
-.convex/
-
-# Logs
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-!.vscode/settings.json
-.idea/
+node_modules
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# TypeScript
-*.tsbuildinfo
-
-# Next.js (if used)
-.next/
-out/
-
-# Misc
-.turbo/
-.cache/
-.parcel-cache/
-*.swp
-*.swo
-*~
-.eslintcache
-.stylelintcache
-
-# OS
-Thumbs.db
-.AppleDouble
-.LSOverride
-ehthumbs.db
-Desktop.ini
-$RECYCLE.BIN/
-
-# Temporary files
-*.tmp
-*.temp
+dist
+dist-ssr
+*.local
+count.txt
+.env
+.nitro
+.tanstack
+.wrangler
+.output
+.vinxi
+__unconfig*
+todos.json

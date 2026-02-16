@@ -1,8 +1,9 @@
 # Agent Dashboard
 
-A modern, real-time task management dashboard for AI agents built with cutting-edge web technologies.
-
+[![CI](https://github.com/alexrobinett/agent-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/alexrobinett/agent-dashboard/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+A modern, real-time task management dashboard for AI agents built with cutting-edge web technologies.
 
 ## 🚀 Tech Stack
 
