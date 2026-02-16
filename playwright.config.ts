@@ -28,6 +28,7 @@ export default defineConfig({
     ['html'],
     ['github'],
     ['list'],
+    ['json', { outputFile: 'test-results/results.json' }],
   ],
   
   /* Shared settings for all the projects below */
@@ -74,7 +75,7 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: 'pnpm build && pnpm preview',
+    command: 'pnpm dev --port 4173',
     port: 4173,
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
