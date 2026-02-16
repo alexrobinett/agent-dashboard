@@ -62,7 +62,7 @@ test.describe('Dashboard Smoke Test', () => {
     await expect(dashboardPage.liveIndicator).toBeVisible()
   })
 
-  test('should display column headers with correct text', async ({ page }) => {
+  test('should display column headers with correct text', async () => {
     await dashboardPage.goto()
     await dashboardPage.waitForLoad()
 
