@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from 'convex/react'
 import { convex } from '../lib/convex'
 import { api } from '../../convex/_generated/api'
+import { getPriorityColor } from '../lib/utils'
 import { Suspense, useEffect, useRef } from 'react'
 
 export const Route = createFileRoute('/dashboard')({
@@ -181,16 +182,3 @@ function DashboardErrorComponent({ error }: { error: Error }) {
   )
 }
 
-function getPriorityColor(priority?: string): string {
-  switch (priority?.toLowerCase()) {
-    case 'high':
-      return '#EF4444' // red
-    case 'normal':
-    case 'medium':
-      return '#F59E0B' // amber
-    case 'low':
-      return '#3B82F6' // blue
-    default:
-      return '#6B7280' // gray
-  }
-}
