@@ -6,8 +6,25 @@ import { Suspense, useEffect, useRef } from 'react'
 
 export const Route = createFileRoute('/dashboard')({
   loader: async () => {
-    // SSR: Pre-fetch data on the server using ConvexHttpClient
-    const tasks = await convex.query(api.tasks.getByStatus, {})
+    const emptyBoard = {
+      planning: [],
+      ready: [],
+      in_progress: [],
+      in_review: [],
+      done: [],
+      blocked: [],
+    }
+
+    // SSR: pre-fetch board data, but fail fast to an empty board in CI/network issues.
+    const timeoutMs = 5000
+    const timeoutPromise = new Promise<typeof emptyBoard>((resolve) => {
+      setTimeout(() => resolve(emptyBoard), timeoutMs)
+    })
+    const tasksPromise = convex
+      .query(api.tasks.getByStatus, {})
+      .catch(() => emptyBoard)
+
+    const tasks = await Promise.race([tasksPromise, timeoutPromise])
     
     return {
       tasks,
