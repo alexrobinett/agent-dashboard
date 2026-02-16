@@ -31,4 +31,34 @@ export default defineSchema({
       })
     ),
   }),
+
+  // Activity log for audit trail
+  activityLog: defineTable({
+    taskId: v.id('tasks'),
+    actor: v.string(),
+    actorType: v.union(
+      v.literal('agent'),
+      v.literal('user'),
+      v.literal('system')
+    ),
+    action: v.union(
+      v.literal('created'),
+      v.literal('claimed'),
+      v.literal('started'),
+      v.literal('completed'),
+      v.literal('updated'),
+      v.literal('blocked'),
+      v.literal('handed_off')
+    ),
+    metadata: v.optional(
+      v.object({
+        fromStatus: v.optional(v.string()),
+        toStatus: v.optional(v.string()),
+        notes: v.optional(v.string()),
+      })
+    ),
+    timestamp: v.number(),
+  })
+    .index('by_task', ['taskId'])
+    .index('by_timestamp', ['timestamp']),
 })
