@@ -2,6 +2,7 @@ import { defineConfig, devices } from '@playwright/test'
 
 /**
  * Playwright configuration for agent-dashboard E2E tests
+ * Sprint 3.1: Multi-viewport testing setup
  * See https://playwright.dev/docs/test-configuration
  */
 export default defineConfig({
@@ -19,9 +20,13 @@ export default defineConfig({
   /* Opt out of parallel tests on CI */
   workers: process.env.CI ? 1 : undefined,
   
+  /* 30 second timeout per test */
+  timeout: 30 * 1000,
+  
   /* Reporter to use */
   reporter: [
     ['html'],
+    ['github'],
     ['list'],
   ],
   
@@ -43,7 +48,7 @@ export default defineConfig({
   /* Configure projects for major browsers and viewports */
   projects: [
     {
-      name: 'chromium-desktop',
+      name: 'desktop-chromium',
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 1440, height: 900 },
@@ -51,17 +56,17 @@ export default defineConfig({
     },
     
     {
-      name: 'webkit-desktop',
+      name: 'tablet-webkit',
       use: {
         ...devices['Desktop Safari'],
-        viewport: { width: 1440, height: 900 },
+        viewport: { width: 768, height: 1024 },
       },
     },
     
     {
-      name: 'chromium-mobile',
+      name: 'mobile-webkit',
       use: {
-        ...devices['Pixel 5'],
+        ...devices['iPhone 12'],
         viewport: { width: 390, height: 844 },
       },
     },
@@ -69,7 +74,8 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: 'pnpm dev',
+    // In CI: serve production build. Locally: use dev server with HMR
+    command: process.env.CI ? 'pnpm preview --port 3000' : 'pnpm dev',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
