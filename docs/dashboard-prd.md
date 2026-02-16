@@ -1,8 +1,130 @@
 # Task Board Dashboard - Product Requirements Document
 
-**Version:** 1.0  
-**Date:** 2026-02-15  
-**Status:** Draft for Phase 2 Implementation  
+**Version:** 1.1  
+**Date:** 2026-02-16  
+**Status:** Active — Sprint 3 in progress  
+
+---
+
+## 0. Living Addendum (Source of Truth)
+
+> **This section overrides anything below that conflicts.** The original PRD (Sections 1-9) was written before implementation. This addendum reflects what was actually built and what the dashboard must align to.
+
+### 0.1 Actual Task Schema (from `~/clawd/convex/schema.ts`)
+
+The dashboard reads from the **same Convex deployment** (`curious-dolphin-134`) as the agent system. The tasks table has these fields — the dashboard must handle ALL of them:
+
+```typescript
+tasks: defineTable({
+  // Core
+  title: v.string(),
+  description: v.optional(v.string()),
+  assignedAgent: v.optional(v.string()),   // NOTE: optional, not required
+  createdBy: v.string(),
+  
+  // Status — 9 values (7 active + 2 legacy)
+  status: v.union(
+    v.literal("planning"),      // Defining scope
+    v.literal("ready"),         // Ready for pickup
+    v.literal("in_progress"),   // Being worked on
+    v.literal("in_review"),     // Needs review
+    v.literal("done"),          // Complete
+    v.literal("blocked"),       // Stuck
+    v.literal("cancelled"),     // Abandoned
+    v.literal("pending"),       // Legacy → map to "planning" in UI
+    v.literal("active"),        // Legacy → map to "in_progress" in UI
+  ),
+
+  // Priority — 4 values
+  priority: v.union(
+    v.literal("low"),
+    v.literal("normal"),
+    v.literal("high"),
+    v.literal("urgent"),
+  ),
+
+  // Timing (Unix ms)
+  createdAt: v.number(),
+  startedAt: v.optional(v.number()),
+  completedAt: v.optional(v.number()),
+  dueAt: v.optional(v.number()),
+
+  // Hierarchy & Dependencies
+  parentTask: v.optional(v.id("tasks")),
+  dependsOn: v.optional(v.array(v.id("tasks"))),   // Array of task IDs
+
+  // Project & Metadata
+  project: v.optional(v.string()),
+  notes: v.optional(v.string()),
+  tags: v.optional(v.array(v.string())),
+  result: v.optional(v.string()),
+  blockedReason: v.optional(v.string()),
+
+  // Lease / Dispatch (agent system internals — show read-only in dashboard)
+  leaseOwner: v.optional(v.string()),
+  leaseExpiresAt: v.optional(v.number()),
+  handoffCount: v.optional(v.number()),
+  version: v.optional(v.number()),
+  attemptCount: v.optional(v.number()),
+  lastHeartbeatAt: v.optional(v.number()),
+
+  // Handoff payload (agent→agent context)
+  handoffPayload: v.optional(v.object({
+    contextSummary: v.string(),
+    filesChanged: v.array(v.string()),
+    testsPassed: v.boolean(),
+    remainingRisk: v.string(),
+  })),
+})
+```
+
+### 0.2 Actual API Endpoints (built in Sprint 2)
+
+| Method | Path | Status | Query Function |
+|--------|------|--------|---------------|
+| GET | /api/board | ✅ Built | `api.tasks.getByStatus` |
+| GET | /api/tasks | ✅ Built | `api.tasks.listFiltered` |
+| GET | /api/tasks/:id | ✅ Built | `api.tasks.getById` |
+| POST | /api/tasks | ✅ Built | `api.tasks.create` |
+| PATCH | /api/tasks/:id | ✅ Built | `api.tasks.update` |
+| GET | /api/workload | ✅ Built | `api.tasks.getWorkload` |
+| GET | /api/health | ✅ Built | inline |
+| POST | /api/tasks/:id/claim | ❌ Not built | — |
+| POST | /api/push/register | ❌ Not built (Phase 3) | — |
+
+**Note:** PRD Section 3.1 references `internal.tasks.getBoard` — the actual function is `api.tasks.getByStatus`.
+
+### 0.3 Actual Tech Versions
+
+| PRD Says | Reality |
+|----------|---------|
+| Tailwind v3 | **Tailwind v4** |
+| convex ^1.25 | **convex ^1.31** |
+| TanStack Query v5 | v5 ✅ |
+| TanStack Router v1 | v1 ✅ |
+
+### 0.4 Kanban Columns (Corrected)
+
+PRD Section 5.1 lists 5 columns. Actual board has **7 columns** (6 active + cancelled):
+
+`Planning → Ready → In Progress → In Review → Done → Blocked → Cancelled`
+
+Legacy statuses `pending` and `active` should be mapped to `Planning` and `In Progress` in the UI.
+
+### 0.5 Queries Not Yet Built
+
+These are referenced in PRD Section 4.2 but don't exist yet:
+- `getMetrics(timeframe)` — aggregate stats by time window
+- `searchTasks(query)` — text search across title/description
+
+These are backlog items, not Sprint 3 scope.
+
+### 0.6 Known Agent Names
+
+Dashboard should expect these agent values in `assignedAgent`:
+`forge`, `sentinel`, `oracle`, `friday`, `pepper`, `main`, `code`, `research`, `ha`, `unassigned`
+
+Each should have a distinct color/avatar in the UI.
 
 ---
 
