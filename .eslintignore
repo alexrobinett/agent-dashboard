@@ -1,0 +1,9 @@
+dist/
+node_modules/
+.vinxi/
+.output/
+.tanstack/
+convex/_generated/
+src/routeTree.gen.ts
+*.config.ts
+*.config.js

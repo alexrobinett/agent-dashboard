@@ -32,15 +32,47 @@ export default defineSchema({
     ),
   }),
 
-  // Push notification tokens for iOS devices
-  pushTokens: defineTable({
+  // User preferences for dashboard customization
+  userPreferences: defineTable({
     userId: v.string(),
-    deviceId: v.string(),
-    token: v.string(),
-    platform: v.literal('ios'),
+    defaultView: v.union(
+      v.literal('kanban'),
+      v.literal('list'),
+      v.literal('workload')
+    ),
+    filterProject: v.optional(v.string()),
+    filterAgent: v.optional(v.string()),
+    notificationEnabled: v.boolean(),
     createdAt: v.number(),
-    lastUsedAt: v.number(),
+    updatedAt: v.number(),
+  }).index('by_user', ['userId']),
+  // Activity log for audit trail
+  activityLog: defineTable({
+    taskId: v.id('tasks'),
+    actor: v.string(),
+    actorType: v.union(
+      v.literal('agent'),
+      v.literal('user'),
+      v.literal('system')
+    ),
+    action: v.union(
+      v.literal('created'),
+      v.literal('claimed'),
+      v.literal('started'),
+      v.literal('completed'),
+      v.literal('updated'),
+      v.literal('blocked'),
+      v.literal('handed_off')
+    ),
+    metadata: v.optional(
+      v.object({
+        fromStatus: v.optional(v.string()),
+        toStatus: v.optional(v.string()),
+        notes: v.optional(v.string()),
+      })
+    ),
+    timestamp: v.number(),
   })
-    .index('by_user', ['userId'])
-    .index('by_device', ['deviceId']),
+    .index('by_task', ['taskId'])
+    .index('by_timestamp', ['timestamp']),
 })
