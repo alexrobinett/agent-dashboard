@@ -10,5 +10,10 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
     }
+    '/dashboard': {
+      id: '/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+    }
   }
 }

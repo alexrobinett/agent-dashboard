@@ -16,3 +16,6 @@ todos.json
 # Convex
 convex/_generated/
 .convex/
+
+# TanStack Router generated
+src/routeTree.gen.ts
