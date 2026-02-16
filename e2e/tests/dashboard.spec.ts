@@ -143,7 +143,7 @@ test.describe('Dashboard Viewport Tests', () => {
     await page.screenshot({ path: 'e2e/screenshots/dashboard-desktop.png', fullPage: true })
   })
 
-  test('should render correctly on mobile viewport (390x844)', async ({ page, browserName }) => {
+  test('should render correctly on mobile viewport (390x844)', async ({ page }) => {
     // Only run on chromium-mobile project
     test.skip(page.viewportSize()?.width !== 390, 'Not a mobile viewport')
 

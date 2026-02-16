@@ -8,6 +8,13 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: [],
+    exclude: [
+      'node_modules/**',
+      'dist/**',
+      '.vinxi/**',
+      '.output/**',
+      'e2e/**', // Playwright E2E tests run separately
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'lcov'],
@@ -25,6 +32,7 @@ export default defineConfig({
         '**/__tests__/**',
         '**/*.test.ts',
         '**/*.test.tsx',
+        'e2e/**', // Playwright E2E tests run separately
       ],
       thresholds: {
         statements: 80,
