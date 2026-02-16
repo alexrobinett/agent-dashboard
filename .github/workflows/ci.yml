@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       
+      - name: Generate stub files for CI
+        run: bash scripts/generate-stubs.sh
+      
       - name: Run ESLint
         run: pnpm lint
 
@@ -49,6 +52,9 @@ jobs:
       
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      
+      - name: Generate stub files for CI
+        run: bash scripts/generate-stubs.sh
       
       - name: Run TypeScript type check
         run: pnpm typecheck
@@ -73,6 +79,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       
+      - name: Generate stub files for CI
+        run: bash scripts/generate-stubs.sh
+      
       - name: Run unit tests
         run: pnpm test
 
@@ -95,6 +104,9 @@ jobs:
       
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      
+      - name: Generate stub files for CI
+        run: bash scripts/generate-stubs.sh
       
       - name: Build project
         run: pnpm build
