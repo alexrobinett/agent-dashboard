@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  # Dev Convex deployment — safe for CI builds and E2E tests (not prod)
+  VITE_CONVEX_URL: https://tacit-bulldog-295.convex.cloud
+
 jobs:
   lint:
     name: Lint
