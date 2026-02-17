@@ -7,7 +7,7 @@ on:
     branches: [main]
   schedule:
     # Run nightly at 2 AM UTC
-    - cron: '0 2 * * *'
+    - cron: "0 2 * * *"
   workflow_dispatch:
 
 env:
@@ -18,37 +18,87 @@ jobs:
     name: Playwright E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v3
         with:
           version: 9
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'pnpm'
-      
+          node-version: "20"
+          cache: "pnpm"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      
-      - name: Generate stub files for CI
+
+      - name: Generate local stubs for PR smoke
+        if: github.event_name == 'pull_request'
+        env:
+          SKIP_ROUTE_TREE_STUB: "1"
         run: bash scripts/generate-stubs.sh
-      
-      - name: Install Playwright browsers
+
+      - name: Preflight Convex codegen env
+        if: github.event_name != 'pull_request'
+        env:
+          CONVEX_DEPLOYMENT: ${{ secrets.CONVEX_DEPLOYMENT_DEV }}
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
+        run: |
+          missing=0
+          if [ -z "$CONVEX_DEPLOYMENT" ]; then
+            echo "::error::Missing CONVEX_DEPLOYMENT (expected secret CONVEX_DEPLOYMENT_DEV)."
+            missing=1
+          fi
+          if [ -z "$CONVEX_DEPLOY_KEY" ]; then
+            echo "::error::Missing CONVEX_DEPLOY_KEY (expected secret CONVEX_DEPLOY_KEY_DEV)."
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            echo "Convex codegen cannot run without deployment auth. Configure required repository secrets for CI."
+            exit 1
+          fi
+
+      - name: Generate Convex API types
+        if: github.event_name != 'pull_request'
+        env:
+          CONVEX_DEPLOYMENT: ${{ secrets.CONVEX_DEPLOYMENT_DEV }}
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
+        run: pnpm exec convex codegen
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Playwright browsers (PR smoke)
+        if: github.event_name == 'pull_request' && steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install chromium
+
+      - name: Install Playwright browsers (nightly/full)
+        if: github.event_name != 'pull_request'
         run: pnpm exec playwright install --with-deps
-      
-      - name: Run Playwright tests
+
+      - name: Run Playwright tests (PR smoke)
+        if: github.event_name == 'pull_request'
+        run: pnpm exec playwright test e2e/tests/dashboard.spec.ts --project=desktop-chromium --retries=0
+        env:
+          CI: true
+
+      - name: Run Playwright tests (nightly/full)
+        if: github.event_name != 'pull_request'
         run: pnpm test:e2e
         env:
-          # CI environment variable enables headless mode
           CI: true
-      
+
       - name: Upload HTML report
         uses: actions/upload-artifact@v4
         if: always()
@@ -56,7 +106,7 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 30
-      
+
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
@@ -64,7 +114,7 @@ jobs:
           name: test-results
           path: test-results/
           retention-days: 30
-      
+
       - name: Upload trace on failure
         uses: actions/upload-artifact@v4
         if: failure()
@@ -72,9 +122,9 @@ jobs:
           name: playwright-traces
           path: test-results/*/trace.zip
           retention-days: 30
-      
+
       - name: Comment PR with test results
         uses: daun/playwright-report-summary@v3
-        if: always() && github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request' && hashFiles('test-results/results.json') != ''
         with:
           report-file: test-results/results.json

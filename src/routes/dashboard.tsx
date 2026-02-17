@@ -8,6 +8,7 @@ import { useSearch } from '../hooks/useSearch'
 import { FilterBar } from '../components/FilterBar'
 import { WorkloadChart, type WorkloadData } from '../components/WorkloadChart'
 import { KanbanBoard } from '../components/KanbanBoard'
+import { ActivityTimeline, type ActivityEntry } from '../components/ActivityTimeline'
 
 export const Route = createFileRoute('/dashboard')({
   loader: async () => {
@@ -54,7 +55,7 @@ function DashboardPage() {
 function DashboardComponent({ initialData }: { initialData: any }) {
   // Avoid Convex React hooks during SSR; hydrate with loader data first.
   if (typeof window === 'undefined') {
-    return <DashboardBoard tasks={initialData} workload={{}} />
+    return <DashboardBoard tasks={initialData} workload={{}} activityEntries={[]} />
   }
 
   return <DashboardLiveComponent initialData={initialData} />
@@ -84,6 +85,17 @@ function DashboardLiveComponent({ initialData }: { initialData: any }) {
     liveWorkload = undefined
   }
   const workload: WorkloadData = liveWorkload ?? {}
+
+  // Live activity timeline data
+  let liveActivityEntries: ActivityEntry[] | undefined
+  try {
+    liveActivityEntries = useQuery(api.activityLog.getRecentActivity, {
+      limit: 50,
+    }) as ActivityEntry[] | undefined
+  } catch {
+    liveActivityEntries = undefined
+  }
+  const activityEntries: ActivityEntry[] = liveActivityEntries ?? []
 
   // Log SSR hydration timing (runs once on mount)
   useEffect(() => {
@@ -118,10 +130,24 @@ function DashboardLiveComponent({ initialData }: { initialData: any }) {
     }
   }, [tasks, initialData])
 
-  return <DashboardBoard tasks={tasks} workload={workload} />
+  return (
+    <DashboardBoard
+      tasks={tasks}
+      workload={workload}
+      activityEntries={activityEntries}
+    />
+  )
 }
 
-function DashboardBoard({ tasks, workload }: { tasks: any; workload: WorkloadData }) {
+function DashboardBoard({
+  tasks,
+  workload,
+  activityEntries,
+}: {
+  tasks: any
+  workload: WorkloadData
+  activityEntries: ActivityEntry[]
+}) {
   const statusOrder = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
   const { filters, setFilter, clearFilters, hasActiveFilters } = useFilters()
 
@@ -205,6 +231,10 @@ function DashboardBoard({ tasks, workload }: { tasks: any; workload: WorkloadDat
         <WorkloadChart data={workload} onAgentClick={handleAgentClick} />
 
         <KanbanBoard tasks={filteredTasks} />
+
+        <div className="mt-8">
+          <ActivityTimeline entries={activityEntries} />
+        </div>
       </div>
     </div>
   )
@@ -241,4 +271,3 @@ function DashboardErrorComponent({ error }: { error: Error }) {
     </div>
   )
 }
-

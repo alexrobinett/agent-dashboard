@@ -21,6 +21,13 @@ interface KanbanBoardProps {
 }
 
 export function KanbanBoard({ tasks }: KanbanBoardProps) {
+  if (typeof window === 'undefined') {
+    return <KanbanBoardStatic tasks={tasks} />
+  }
+  return <KanbanBoardInteractive tasks={tasks} />
+}
+
+function KanbanBoardInteractive({ tasks }: KanbanBoardProps) {
   const [activeTask, setActiveTask] = useState<any | null>(null)
   const { displayTasks, moveTask } = useOptimisticTaskMove(tasks)
 
@@ -88,5 +95,15 @@ export function KanbanBoard({ tasks }: KanbanBoardProps) {
         {activeTask ? <TaskCard task={activeTask} /> : null}
       </DragOverlay>
     </DndContext>
+  )
+}
+
+function KanbanBoardStatic({ tasks }: KanbanBoardProps) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {STATUS_ORDER.map((status) => (
+        <KanbanColumn key={status} status={status} tasks={tasks[status] || []} />
+      ))}
+    </div>
   )
 }
