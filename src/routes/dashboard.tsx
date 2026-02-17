@@ -5,6 +5,7 @@ import { api } from '../../convex/_generated/api'
 import { getPriorityColor } from '../lib/utils'
 import { Suspense, useEffect, useMemo, useRef } from 'react'
 import { useFilters } from '../hooks/useFilters'
+import { useSearch } from '../hooks/useSearch'
 import { FilterBar } from '../components/FilterBar'
 
 export const Route = createFileRoute('/dashboard')({
@@ -130,26 +131,36 @@ function DashboardBoard({ tasks }: { tasks: any }) {
     }
   }, [tasks])
 
-  // Apply client-side filters to the board data
+  // Flatten all tasks for search filtering, then re-group by status
+  const allTasks = useMemo(() => {
+    const flat: any[] = []
+    for (const status of statusOrder) {
+      for (const task of tasks[status] || []) {
+        flat.push({ ...task, _status: task.status ?? status })
+      }
+    }
+    return flat
+  }, [tasks])
+
+  const { filteredTasks: searchResults } = useSearch(allTasks, filters.search)
+
+  // Apply dropdown filters on top of search results, then re-group by status
   const filteredTasks = useMemo(() => {
     const result: Record<string, any[]> = {}
     for (const status of statusOrder) {
-      result[status] = (tasks[status] || []).filter((task: any) => {
-        if (filters.project && task.project !== filters.project) return false
-        if (filters.agent && task.assignedAgent !== filters.agent) return false
-        if (filters.priority && task.priority !== filters.priority) return false
-        if (filters.search) {
-          const q = filters.search.toLowerCase()
-          const inTitle = task.title?.toLowerCase().includes(q)
-          const inAgent = task.assignedAgent?.toLowerCase().includes(q)
-          const inProject = task.project?.toLowerCase().includes(q)
-          if (!inTitle && !inAgent && !inProject) return false
-        }
-        return true
-      })
+      result[status] = []
+    }
+    for (const task of searchResults) {
+      if (filters.project && task.project !== filters.project) continue
+      if (filters.agent && task.assignedAgent !== filters.agent) continue
+      if (filters.priority && task.priority !== filters.priority) continue
+      const status = task._status ?? 'planning'
+      if (result[status]) {
+        result[status].push(task)
+      }
     }
     return result
-  }, [tasks, filters])
+  }, [searchResults, filters.project, filters.agent, filters.priority])
 
   return (
     <div className="min-h-screen bg-background p-6">
