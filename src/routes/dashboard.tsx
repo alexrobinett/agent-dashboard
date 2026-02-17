@@ -2,12 +2,12 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from 'convex/react'
 import { convex } from '../lib/convex'
 import { api } from '../../convex/_generated/api'
-import { getPriorityColor } from '../lib/utils'
 import { Suspense, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useFilters } from '../hooks/useFilters'
 import { useSearch } from '../hooks/useSearch'
 import { FilterBar } from '../components/FilterBar'
 import { WorkloadChart, type WorkloadData } from '../components/WorkloadChart'
+import { KanbanBoard } from '../components/KanbanBoard'
 
 export const Route = createFileRoute('/dashboard')({
   loader: async () => {
@@ -204,66 +204,7 @@ function DashboardBoard({ tasks, workload }: { tasks: any; workload: WorkloadDat
 
         <WorkloadChart data={workload} onAgentClick={handleAgentClick} />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {statusOrder.map((status) => {
-            const statusTasks = filteredTasks[status] || []
-            const count = statusTasks.length
-            
-            return (
-              <div
-                key={status}
-                data-testid={`column-${status}`}
-                className="bg-card rounded-lg border border-border p-4 shadow-sm hover:shadow-md transition-shadow"
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-semibold text-card-foreground capitalize">
-                    {status.replace('_', ' ')}
-                  </h2>
-                  <span className="text-sm text-muted-foreground bg-muted px-2 py-1 rounded-full">
-                    {count}
-                  </span>
-                </div>
-                
-                <div className="space-y-2">
-                  {statusTasks.length === 0 ? (
-                    <p className="text-sm text-muted-foreground italic py-4 text-center">
-                      No tasks
-                    </p>
-                  ) : (
-                    statusTasks.map((task: any) => (
-                      <div
-                        key={task._id}
-                        className="bg-secondary rounded-md p-3 border-l-4 hover:bg-secondary/80 transition-colors cursor-pointer"
-                        style={{
-                          borderLeftColor: getPriorityColor(task.priority),
-                        }}
-                      >
-                        <h3 className="font-medium text-secondary-foreground text-sm mb-1 line-clamp-2">
-                          {task.title}
-                        </h3>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span className="capitalize">{task.assignedAgent}</span>
-                          {task.priority && (
-                            <>
-                              <span>•</span>
-                              <span className="capitalize">{task.priority}</span>
-                            </>
-                          )}
-                          {task.project && (
-                            <>
-                              <span>•</span>
-                              <span className="truncate max-w-[100px]">{task.project}</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
+        <KanbanBoard tasks={filteredTasks} />
       </div>
     </div>
   )
