@@ -39,6 +39,7 @@ function makeMutableCtx(tasks: any[]) {
           const task = store.find((t) => t._id === id)
           if (task) Object.assign(task, fields)
         },
+        insert: async () => 'log-stub',
       },
     },
     store,

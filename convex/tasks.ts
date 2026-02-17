@@ -228,7 +228,74 @@ export const update = mutation({
     
     // Update task
     await ctx.db.patch(args!.id, updates)
-    
+
+    // Log activity
+    if (args!.status !== undefined && args!.status !== task.status) {
+      await ctx.db.insert('activityLog', {
+        taskId: args!.id,
+        actor: 'system',
+        actorType: 'system',
+        action: 'status_changed',
+        metadata: {
+          fromStatus: task.status || 'planning',
+          toStatus: args!.status,
+        },
+        timestamp: Date.now(),
+      })
+    } else if (args!.priority !== undefined && args!.priority !== task.priority) {
+      await ctx.db.insert('activityLog', {
+        taskId: args!.id,
+        actor: 'system',
+        actorType: 'system',
+        action: 'priority_changed',
+        metadata: {
+          fromStatus: task.priority || 'normal',
+          toStatus: args!.priority,
+        },
+        timestamp: Date.now(),
+      })
+    } else {
+      const changedFields = Object.keys(updates).join(', ')
+      await ctx.db.insert('activityLog', {
+        taskId: args!.id,
+        actor: 'system',
+        actorType: 'system',
+        action: 'updated',
+        metadata: {
+          notes: `Updated fields: ${changedFields}`,
+        },
+        timestamp: Date.now(),
+      })
+    }
+
+    return { success: true }
+  },
+})
+
+export const remove = mutation({
+  args: {
+    id: v.id('tasks'),
+  },
+  handler: async (ctx, args) => {
+    const task = await ctx.db.get(args!.id)
+    if (!task) {
+      throw new Error('Task not found')
+    }
+
+    await ctx.db.delete(args!.id)
+
+    // Log activity
+    await ctx.db.insert('activityLog', {
+      taskId: args!.id,
+      actor: 'system',
+      actorType: 'system',
+      action: 'deleted',
+      metadata: {
+        notes: `Deleted task: ${task.title}`,
+      },
+      timestamp: Date.now(),
+    })
+
     return { success: true }
   },
 })
