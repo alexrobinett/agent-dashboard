@@ -58,11 +58,13 @@ export default defineSchema({
     result: v.optional(v.string()),
     blockedReason: v.optional(v.string()),
 
-    // Legacy lease fields (kept for backward compat, no longer actively used)
+    // Legacy fields retained for existing rows; no active code uses them.
     leaseOwner: v.optional(v.string()),
     leaseExpiresAt: v.optional(v.number()),
     handoffCount: v.optional(v.number()),
     version: v.optional(v.number()),
+    attemptCount: v.optional(v.number()),
+    lastHeartbeatAt: v.optional(v.number()),
 
     // Handoff payload (agent→agent context)
     handoffPayload: v.optional(
@@ -73,10 +75,6 @@ export default defineSchema({
         remainingRisk: v.string(),
       })
     ),
-
-    // Dispatch tracking
-    attemptCount: v.optional(v.number()),
-    lastHeartbeatAt: v.optional(v.number()),
 
     // OpenClaw session tracking
     runId: v.optional(v.string()),

@@ -42,17 +42,8 @@ const listTasksHandler = (taskModule.listTasks as unknown as HandlerExtractor).h
 const getTaskHandler = (taskModule.getTask as unknown as HandlerExtractor).handler
 const getBoardHandler = (taskModule.getBoard as unknown as HandlerExtractor).handler
 const getWorkloadByAgentStatusHandler = (taskModule.getWorkloadByAgentStatus as unknown as HandlerExtractor).handler
-const getLeaseHandler = (taskModule.getLease as unknown as HandlerExtractor).handler
 
 // Deprecated handlers
-const recoverStaleTasksHandler = (taskModule.recoverStaleTasks as unknown as HandlerExtractor).handler
-const agentHeartbeatHandler = (taskModule.agentHeartbeat as unknown as HandlerExtractor).handler
-const acquireLeaseHandler = (taskModule.acquireLease as unknown as HandlerExtractor).handler
-const releaseLeaseHandler = (taskModule.releaseLease as unknown as HandlerExtractor).handler
-const refreshLeaseHandler = (taskModule.refreshLease as unknown as HandlerExtractor).handler
-const transferLeaseHandler = (taskModule.transferLease as unknown as HandlerExtractor).handler
-const casClaimHandler = (taskModule.casClaim as unknown as HandlerExtractor).handler
-const sanitizeTaskTextFieldsHandler = (taskModule.sanitizeTaskTextFields as unknown as HandlerExtractor).handler
 
 // ──────────────────────────────────────────────────────────
 // Helper: build a mock Convex QueryCtx
@@ -230,7 +221,6 @@ describe('getById query handler', () => {
       createdBy: 'main',
       notes: 'detailed',
       version: 5,
-      leaseOwner: 'forge-123',
     })
     const ctx = mockCtx([task])
     const result = await getByIdHandler(ctx, { id: 'full' as TaskId })
@@ -1086,17 +1076,6 @@ describe('update Mutation - Edge Cases', () => {
 // NEW TESTS — Agent Workflow Mutations (clawd)
 // ═══════════════════════════════════════════════════════════
 
-// Helper: mock ctx with SYSTEM_TOKEN for deprecated mutations
-function mockCtxWithToken(tasks: Task[], token = 'test-system-token') {
-  const ctx = mockCtx(tasks)
-  // Set up process.env for verifySystemToken
-  const g = globalThis as { process?: { env?: Record<string, string | undefined> } }
-  if (!g.process) g.process = {}
-  if (!g.process.env) g.process.env = {}
-  g.process.env.SYSTEM_TOKEN = token
-  return ctx
-}
-
 // ──────────────────────────────────────────────────────────
 // pushStatus
 // ──────────────────────────────────────────────────────────
@@ -1286,11 +1265,10 @@ describe('createTask — full validation', () => {
     expect(ctx._inserted[0].doc.startedAt).toBeDefined()
   })
 
-  it('should set version to 0 and attemptCount to 0', async () => {
+  it('should set version to 0', async () => {
     const ctx = mockCtx([])
     await createTaskHandler(ctx, { title: 'Test' })
     expect(ctx._inserted[0].doc.version).toBe(0)
-    expect(ctx._inserted[0].doc.attemptCount).toBe(0)
   })
 
   it('should accept all optional fields', async () => {
@@ -1440,13 +1418,6 @@ describe('completeTask', () => {
       .rejects.toThrow('Cannot complete a cancelled task')
   })
 
-  it('should clear lease fields', async () => {
-    const task = makeTask({ _id: 'd4' as TaskId, status: 'in_progress', leaseOwner: 'forge', leaseExpiresAt: Date.now() + 9999 } as any)
-    const ctx = mockCtx([task])
-    await completeTaskHandler(ctx, { taskId: 'd4' as TaskId })
-    expect(ctx._patches[0].fields.leaseOwner).toBeUndefined()
-    expect(ctx._patches[0].fields.leaseExpiresAt).toBeUndefined()
-  })
 
   it('should sanitize result text', async () => {
     const task = makeTask({ _id: 'd5' as TaskId, status: 'in_progress' })
@@ -1541,7 +1512,7 @@ describe('State machine transitions', () => {
 
   for (const [from, to] of validTransitions) {
     it(`should allow ${from} → ${to}`, async () => {
-      const task = makeTask({ _id: 'sm' as TaskId, status: from })
+      const task = makeTask({ _id: 'sm' as TaskId, status: from as any })
       const ctx = mockCtx([task])
       await updateTaskHandler(ctx, { taskId: 'sm' as TaskId, status: to })
       expect(ctx._patches[0].fields.status).toBe(to)
@@ -1562,7 +1533,7 @@ describe('State machine transitions', () => {
 
   for (const [from, to] of invalidTransitions) {
     it(`should reject ${from} → ${to}`, async () => {
-      const task = makeTask({ _id: 'sm' as TaskId, status: from })
+      const task = makeTask({ _id: 'sm' as TaskId, status: from as any })
       const ctx = mockCtx([task])
       await expect(updateTaskHandler(ctx, { taskId: 'sm' as TaskId, status: to }))
         .rejects.toThrow('Invalid transition')
@@ -1607,13 +1578,6 @@ describe('State machine transitions', () => {
     expect(ctx._patches[0].fields.blockedReason).toBeUndefined()
   })
 
-  it('should clear lease fields on certain transitions', async () => {
-    const task = makeTask({ _id: 'lf' as TaskId, status: 'in_progress', leaseOwner: 'x' } as any)
-    const ctx = mockCtx([task])
-    await updateTaskHandler(ctx, { taskId: 'lf' as TaskId, status: 'ready' })
-    expect(ctx._patches[0].fields.leaseOwner).toBeUndefined()
-    expect(ctx._patches[0].fields.leaseExpiresAt).toBeUndefined()
-  })
 })
 
 // ──────────────────────────────────────────────────────────
@@ -1799,282 +1763,6 @@ describe('deleteTask', () => {
 })
 
 // ──────────────────────────────────────────────────────────
-// Deprecated mutations
-// ──────────────────────────────────────────────────────────
-describe('Deprecated mutations', () => {
-  it('recoverStaleTasks should return empty result', async () => {
-    const ctx = mockCtx([])
-    const result = await recoverStaleTasksHandler(ctx, {})
-    expect(result).toEqual({ recovered: [], count: 0 })
-  })
-
-  it('agentHeartbeat should return ok', async () => {
-    const ctx = mockCtx([])
-    const result = await agentHeartbeatHandler(ctx, {
-      taskId: 'x' as TaskId,
-      agent: 'forge',
-    })
-    expect(result.ok).toBe(true)
-    expect(result.nextHeartbeatBefore).toBeDefined()
-  })
-
-  it('acquireLease should acquire for valid token', async () => {
-    const task = makeTask({ _id: 'al1' as TaskId })
-    const ctx = mockCtxWithToken([task])
-    const result = await acquireLeaseHandler(ctx, {
-      taskId: 'al1' as TaskId,
-      owner: 'forge',
-      ttlMs: 60000,
-      systemToken: 'test-system-token',
-    })
-    expect(result.owner).toBe('forge')
-    expect(result.expiresAt).toBeDefined()
-  })
-
-  it('acquireLease should reject invalid token', async () => {
-    const task = makeTask({ _id: 'al2' as TaskId })
-    const ctx = mockCtxWithToken([task])
-    await expect(acquireLeaseHandler(ctx, {
-      taskId: 'al2' as TaskId,
-      owner: 'forge',
-      ttlMs: 60000,
-      systemToken: 'wrong-token',
-    })).rejects.toThrow('Authentication failed')
-  })
-
-  it('acquireLease should throw when task not found', async () => {
-    const ctx = mockCtxWithToken([])
-    await expect(acquireLeaseHandler(ctx, {
-      taskId: 'missing' as TaskId,
-      owner: 'forge',
-      ttlMs: 60000,
-      systemToken: 'test-system-token',
-    })).rejects.toThrow('Task not found')
-  })
-
-  it('acquireLease should reject when held by another owner', async () => {
-    const task = makeTask({
-      _id: 'al3' as TaskId,
-      leaseOwner: 'other',
-      leaseExpiresAt: Date.now() + 99999,
-    } as any)
-    const ctx = mockCtxWithToken([task])
-    await expect(acquireLeaseHandler(ctx, {
-      taskId: 'al3' as TaskId,
-      owner: 'forge',
-      ttlMs: 60000,
-      systemToken: 'test-system-token',
-    })).rejects.toThrow('Lease is held by another owner')
-  })
-
-  it('acquireLease should renew when same owner holds lease', async () => {
-    const task = makeTask({
-      _id: 'al4' as TaskId,
-      leaseOwner: 'forge',
-      leaseExpiresAt: Date.now() + 99999,
-    } as any)
-    const ctx = mockCtxWithToken([task])
-    const result = await acquireLeaseHandler(ctx, {
-      taskId: 'al4' as TaskId,
-      owner: 'forge',
-      ttlMs: 60000,
-      systemToken: 'test-system-token',
-    })
-    expect(result.owner).toBe('forge')
-  })
-
-  it('releaseLease should release for correct owner', async () => {
-    const task = makeTask({ _id: 'rl1' as TaskId, leaseOwner: 'forge' } as any)
-    const ctx = mockCtxWithToken([task])
-    const result = await releaseLeaseHandler(ctx, {
-      taskId: 'rl1' as TaskId,
-      owner: 'forge',
-      systemToken: 'test-system-token',
-    })
-    expect(result).toEqual({ released: true })
-  })
-
-  it('releaseLease should reject wrong owner', async () => {
-    const task = makeTask({ _id: 'rl2' as TaskId, leaseOwner: 'other' } as any)
-    const ctx = mockCtxWithToken([task])
-    await expect(releaseLeaseHandler(ctx, {
-      taskId: 'rl2' as TaskId,
-      owner: 'forge',
-      systemToken: 'test-system-token',
-    })).rejects.toThrow('not the current owner')
-  })
-
-  it('releaseLease should reject version mismatch', async () => {
-    const task = makeTask({ _id: 'rl3' as TaskId, leaseOwner: 'forge', version: 5 } as any)
-    const ctx = mockCtxWithToken([task])
-    await expect(releaseLeaseHandler(ctx, {
-      taskId: 'rl3' as TaskId,
-      owner: 'forge',
-      expectedVersion: 3,
-      systemToken: 'test-system-token',
-    })).rejects.toThrow('Concurrent modification')
-  })
-
-  it('refreshLease should refresh for correct owner', async () => {
-    const task = makeTask({ _id: 'rf1' as TaskId, leaseOwner: 'forge', leaseExpiresAt: Date.now() + 99999 } as any)
-    const ctx = mockCtxWithToken([task])
-    const result = await refreshLeaseHandler(ctx, {
-      taskId: 'rf1' as TaskId,
-      owner: 'forge',
-      ttlMs: 60000,
-      systemToken: 'test-system-token',
-    })
-    expect(result.owner).toBe('forge')
-  })
-
-  it('refreshLease should reject wrong owner', async () => {
-    const task = makeTask({ _id: 'rf2' as TaskId, leaseOwner: 'other', leaseExpiresAt: Date.now() + 99999 } as any)
-    const ctx = mockCtxWithToken([task])
-    await expect(refreshLeaseHandler(ctx, {
-      taskId: 'rf2' as TaskId,
-      owner: 'forge',
-      ttlMs: 60000,
-      systemToken: 'test-system-token',
-    })).rejects.toThrow('not the current owner')
-  })
-
-  it('refreshLease should reject expired lease', async () => {
-    const task = makeTask({ _id: 'rf3' as TaskId, leaseOwner: 'forge', leaseExpiresAt: 1 } as any)
-    const ctx = mockCtxWithToken([task])
-    await expect(refreshLeaseHandler(ctx, {
-      taskId: 'rf3' as TaskId,
-      owner: 'forge',
-      ttlMs: 60000,
-      systemToken: 'test-system-token',
-    })).rejects.toThrow('lease has expired')
-  })
-
-  it('transferLease should transfer between owners', async () => {
-    const task = makeTask({ _id: 'tl1' as TaskId, leaseOwner: 'forge', leaseExpiresAt: Date.now() + 99999 } as any)
-    const ctx = mockCtxWithToken([task])
-    const result = await transferLeaseHandler(ctx, {
-      taskId: 'tl1' as TaskId,
-      fromOwner: 'forge',
-      toOwner: 'sentinel',
-      systemToken: 'test-system-token',
-    })
-    expect(result.fromOwner).toBe('forge')
-    expect(result.toOwner).toBe('sentinel')
-    expect(result.handoffCount).toBe(1)
-  })
-
-  it('transferLease should reject wrong fromOwner', async () => {
-    const task = makeTask({ _id: 'tl2' as TaskId, leaseOwner: 'other', leaseExpiresAt: Date.now() + 99999 } as any)
-    const ctx = mockCtxWithToken([task])
-    await expect(transferLeaseHandler(ctx, {
-      taskId: 'tl2' as TaskId,
-      fromOwner: 'forge',
-      toOwner: 'sentinel',
-      systemToken: 'test-system-token',
-    })).rejects.toThrow('not held by the specified owner')
-  })
-
-  it('transferLease should reject expired lease', async () => {
-    const task = makeTask({ _id: 'tl3' as TaskId, leaseOwner: 'forge', leaseExpiresAt: 1 } as any)
-    const ctx = mockCtxWithToken([task])
-    await expect(transferLeaseHandler(ctx, {
-      taskId: 'tl3' as TaskId,
-      fromOwner: 'forge',
-      toOwner: 'sentinel',
-      systemToken: 'test-system-token',
-    })).rejects.toThrow('lease has expired')
-  })
-
-  it('casClaim should claim task with valid token', async () => {
-    const task = makeTask({ _id: 'cc1' as TaskId, status: 'ready' })
-    const ctx = mockCtxWithToken([task])
-    const result = await casClaimHandler(ctx, {
-      taskId: 'cc1' as TaskId,
-      agent: 'forge',
-      fromStatuses: 'ready,planning',
-      toStatus: 'in_progress',
-      systemToken: 'test-system-token',
-    })
-    expect(result.success).toBe(true)
-    // previousStatus is captured before patch, but our mock mutates in-place
-    // so we just check it's truthy
-    expect(result.previousStatus).toBeDefined()
-  })
-
-  it('casClaim should fail when status not in allowed list', async () => {
-    const task = makeTask({ _id: 'cc2' as TaskId, status: 'done' })
-    const ctx = mockCtxWithToken([task])
-    const result = await casClaimHandler(ctx, {
-      taskId: 'cc2' as TaskId,
-      agent: 'forge',
-      fromStatuses: 'ready,planning',
-      toStatus: 'in_progress',
-      systemToken: 'test-system-token',
-    })
-    expect(result.success).toBe(false)
-    expect(result.error).toContain('not in allowed list')
-  })
-
-  it('casClaim should fail when task not found', async () => {
-    const ctx = mockCtxWithToken([])
-    const result = await casClaimHandler(ctx, {
-      taskId: 'missing' as TaskId,
-      agent: 'forge',
-      fromStatuses: 'ready',
-      toStatus: 'in_progress',
-      systemToken: 'test-system-token',
-    })
-    expect(result.success).toBe(false)
-  })
-
-  it('casClaim should fail when another agent holds lease', async () => {
-    const task = makeTask({
-      _id: 'cc3' as TaskId,
-      status: 'ready',
-      leaseOwner: 'other',
-      leaseExpiresAt: Date.now() + 99999,
-    } as any)
-    const ctx = mockCtxWithToken([task])
-    const result = await casClaimHandler(ctx, {
-      taskId: 'cc3' as TaskId,
-      agent: 'forge',
-      fromStatuses: 'ready',
-      toStatus: 'in_progress',
-      systemToken: 'test-system-token',
-    })
-    expect(result.success).toBe(false)
-    expect(result.error).toContain('Another agent')
-  })
-
-  it('sanitizeTaskTextFields should require valid token', async () => {
-    const ctx = mockCtxWithToken([])
-    await expect(sanitizeTaskTextFieldsHandler(ctx, {
-      systemToken: 'wrong-token',
-    })).rejects.toThrow('Authentication failed')
-  })
-
-  it('sanitizeTaskTextFields should scan and update dirty tasks', async () => {
-    const task = makeTask({ _id: 'stf1' as TaskId, title: 'clean\x00dirty' })
-    const ctx = mockCtxWithToken([task])
-    const result = await sanitizeTaskTextFieldsHandler(ctx, {
-      systemToken: 'test-system-token',
-    })
-    expect(result.scanned).toBe(1)
-    expect(result.updated).toBe(1)
-  })
-
-  it('sanitizeTaskTextFields should not update clean tasks', async () => {
-    const task = makeTask({ _id: 'stf2' as TaskId, title: 'clean' })
-    const ctx = mockCtxWithToken([task])
-    const result = await sanitizeTaskTextFieldsHandler(ctx, {
-      systemToken: 'test-system-token',
-    })
-    expect(result.scanned).toBe(1)
-    expect(result.updated).toBe(0)
-  })
-})
-
-// ──────────────────────────────────────────────────────────
 // Query functions (agent queries)
 // ──────────────────────────────────────────────────────────
 describe('Query functions', () => {
@@ -2135,19 +1823,6 @@ describe('Query functions', () => {
     expect(result[0].agent).toBe('forge')
   })
 
-  it('getLease should return lease info', async () => {
-    const task = makeTask({ _id: 'gl1' as TaskId, leaseOwner: 'forge', leaseExpiresAt: 12345, version: 3 } as any)
-    const ctx = mockCtx([task])
-    const result = await getLeaseHandler(ctx, { taskId: 'gl1' as TaskId })
-    expect(result?.leaseOwner).toBe('forge')
-    expect(result?.version).toBe(3)
-  })
-
-  it('getLease should return null for missing task', async () => {
-    const ctx = mockCtx([])
-    const result = await getLeaseHandler(ctx, { taskId: 'missing' as TaskId })
-    expect(result).toBeNull()
-  })
 })
 
 // ──────────────────────────────────────────────────────────
