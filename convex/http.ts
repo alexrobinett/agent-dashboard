@@ -260,7 +260,7 @@ http.route({
  * Returns: Single task object
  */
 http.route({
-  path: '/api/tasks/:id',
+  pathPrefix: '/api/tasks/',
   method: 'GET',
   handler: httpActionGeneric(async (ctx, request) => {
     // Extract task ID from URL path
@@ -418,7 +418,7 @@ http.route({
  * Returns: { success: true }
  */
 http.route({
-  path: '/api/tasks/:id',
+  pathPrefix: '/api/tasks/',
   method: 'PATCH',
   handler: httpActionGeneric(async (ctx, request) => {
     // Extract task ID from URL path
@@ -472,7 +472,7 @@ http.route({
  * OPTIONS handler for /api/tasks/:id CORS preflight
  */
 http.route({
-  path: '/api/tasks/:id',
+  pathPrefix: '/api/tasks/',
   method: 'OPTIONS',
   handler: httpActionGeneric(async () => {
     return withCors(

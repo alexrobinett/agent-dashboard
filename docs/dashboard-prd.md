@@ -89,7 +89,7 @@ tasks: defineTable({
 | PATCH | /api/tasks/:id | ✅ Built | `api.tasks.update` |
 | GET | /api/workload | ✅ Built | `api.tasks.getWorkload` |
 | GET | /api/health | ✅ Built | inline |
-| POST | /api/tasks/:id/claim | ❌ Not built | — |
+| POST | /api/tasks/:id/claim | ❌ Removed — orchestration handled by Jarvis/OpenClaw | — |
 | POST | /api/push/register | ❌ Not built (Phase 3) | — |
 
 **Note:** PRD Section 3.1 references `internal.tasks.getBoard` — the actual function is `api.tasks.getByStatus`.
