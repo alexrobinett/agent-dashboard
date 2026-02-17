@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { FilterBar, type FilterBarProps } from '../../components/FilterBar'
-import { EMPTY_FILTERS, type FilterState } from '../../hooks/useFilters'
+import { EMPTY_FILTERS } from '../../hooks/useFilters'
 
 // --- helpers -----------------------------------------------------------
 
@@ -277,7 +277,7 @@ describe('useFilters hook - URL sync', () => {
       hookResult = useFilters()
       return null
     }
-    const { rerender } = render(<TestComponent />)
+    const { rerender: _rerender } = render(<TestComponent />)
 
     // Set a filter via the hook
     act(() => {
@@ -298,7 +298,7 @@ describe('useFilters hook - URL sync', () => {
       hookResult = useFilters()
       return null
     }
-    const { rerender } = render(<TestComponent />)
+    const { rerender: _rerender2 } = render(<TestComponent />)
 
     act(() => {
       hookResult!.clearFilters()

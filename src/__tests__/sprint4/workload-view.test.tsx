@@ -143,13 +143,13 @@ describe('Workload View - aggregateWorkload() pure function', () => {
     const result = aggregateWorkload(tasks)
 
     // For each agent, sum of byStatus values must equal total
-    for (const [agent, workload] of Object.entries(result)) {
+    for (const [, workload] of Object.entries(result)) {
       const statusSum = Object.values(workload.byStatus).reduce((s, c) => s + c, 0)
       expect(statusSum).toBe(workload.total)
     }
 
     // For each agent, sum of byPriority values must equal total
-    for (const [agent, workload] of Object.entries(result)) {
+    for (const [, workload] of Object.entries(result)) {
       const prioritySum = Object.values(workload.byPriority).reduce((s, c) => s + c, 0)
       expect(prioritySum).toBe(workload.total)
     }
