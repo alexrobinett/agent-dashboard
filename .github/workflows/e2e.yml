@@ -7,7 +7,7 @@ on:
     branches: [main]
   schedule:
     # Run nightly at 2 AM UTC
-    - cron: '0 2 * * *'
+    - cron: "0 2 * * *"
   workflow_dispatch:
 
 env:
@@ -20,25 +20,25 @@ jobs:
     name: Playwright E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v3
         with:
           version: 9
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'pnpm'
-      
+          node-version: "20"
+          cache: "pnpm"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      
+
       - name: Preflight Convex codegen env
         run: |
           missing=0
@@ -58,15 +58,26 @@ jobs:
       - name: Generate Convex API types
         run: pnpm exec convex codegen
 
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Playwright system dependencies
+        run: pnpm exec playwright install-deps chromium
+
       - name: Install Playwright browsers
-        run: pnpm exec playwright install --with-deps
-      
+        run: timeout 10m pnpm exec playwright install chromium
+
       - name: Run Playwright tests
         run: pnpm test:e2e
         env:
           # CI environment variable enables headless mode
           CI: true
-      
+
       - name: Upload HTML report
         uses: actions/upload-artifact@v4
         if: always()
@@ -74,7 +85,7 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 30
-      
+
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
@@ -82,7 +93,7 @@ jobs:
           name: test-results
           path: test-results/
           retention-days: 30
-      
+
       - name: Upload trace on failure
         uses: actions/upload-artifact@v4
         if: failure()
@@ -90,7 +101,7 @@ jobs:
           name: playwright-traces
           path: test-results/*/trace.zip
           retention-days: 30
-      
+
       - name: Comment PR with test results
         uses: daun/playwright-report-summary@v3
         if: always() && github.event_name == 'pull_request' && hashFiles('test-results/results.json') != ''
