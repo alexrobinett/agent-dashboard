@@ -180,23 +180,23 @@ test.describe('Sprint 4: Drag-and-Drop Integration', () => {
 
   test('should render columns with heading, badge, and task area structure', async ({ page }) => {
     const columns = page.locator('[data-testid^="column-"]')
-    expect(await columns.count()).toBe(6)
+    await expect(columns).toHaveCount(6)
 
     for (let i = 0; i < 6; i++) {
       const column = columns.nth(i)
+      // Scroll column into view first (mobile/tablet may stack columns vertically)
+      await column.scrollIntoViewIfNeeded()
       await expect(column).toBeVisible()
 
       // Each column must have a heading with text
       const heading = column.locator('h2')
       await expect(heading).toBeVisible()
-      const headingText = await heading.textContent()
-      expect(headingText!.trim().length).toBeGreaterThan(0)
+      await expect(heading).not.toBeEmpty()
 
       // Each column must have a count badge with a number
       const badge = column.locator('.rounded-full')
       await expect(badge).toBeVisible()
-      const badgeText = await badge.textContent()
-      expect(badgeText!.trim()).toMatch(/^\d+$/)
+      await expect(badge).toHaveText(/^\d+$/)
     }
   })
 
