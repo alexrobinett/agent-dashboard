@@ -12,8 +12,6 @@ on:
 
 env:
   VITE_CONVEX_URL: https://tacit-bulldog-295.convex.cloud
-  CONVEX_DEPLOYMENT: ${{ secrets.CONVEX_DEPLOYMENT_DEV }}
-  CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
 
 jobs:
   e2e:
@@ -39,7 +37,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Generate local stubs for PR smoke
+        if: github.event_name == 'pull_request'
+        run: bash scripts/generate-stubs.sh
+
       - name: Preflight Convex codegen env
+        if: github.event_name != 'pull_request'
+        env:
+          CONVEX_DEPLOYMENT: ${{ secrets.CONVEX_DEPLOYMENT_DEV }}
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
         run: |
           missing=0
           if [ -z "$CONVEX_DEPLOYMENT" ]; then
@@ -56,6 +62,10 @@ jobs:
           fi
 
       - name: Generate Convex API types
+        if: github.event_name != 'pull_request'
+        env:
+          CONVEX_DEPLOYMENT: ${{ secrets.CONVEX_DEPLOYMENT_DEV }}
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
         run: pnpm exec convex codegen
 
       - name: Cache Playwright browsers
