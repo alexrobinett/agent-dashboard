@@ -6,6 +6,7 @@ import { getPriorityColor } from '../lib/utils'
 import { Suspense, useEffect, useMemo, useRef } from 'react'
 import { useFilters } from '../hooks/useFilters'
 import { FilterBar } from '../components/FilterBar'
+import { WorkloadChart, type WorkloadData } from '../components/WorkloadChart'
 
 export const Route = createFileRoute('/dashboard')({
   loader: async () => {
@@ -52,7 +53,7 @@ function DashboardPage() {
 function DashboardComponent({ initialData }: { initialData: any }) {
   // Avoid Convex React hooks during SSR; hydrate with loader data first.
   if (typeof window === 'undefined') {
-    return <DashboardBoard tasks={initialData} />
+    return <DashboardBoard tasks={initialData} workload={{}} />
   }
 
   return <DashboardLiveComponent initialData={initialData} />
@@ -73,6 +74,15 @@ function DashboardLiveComponent({ initialData }: { initialData: any }) {
     liveTasks = undefined
   }
   const tasks = liveTasks ?? initialData
+
+  // Live workload data
+  let liveWorkload: WorkloadData | undefined
+  try {
+    liveWorkload = useQuery(api.tasks.getWorkload, {}) as WorkloadData | undefined
+  } catch {
+    liveWorkload = undefined
+  }
+  const workload: WorkloadData = liveWorkload ?? {}
 
   // Log SSR hydration timing (runs once on mount)
   useEffect(() => {
@@ -107,10 +117,10 @@ function DashboardLiveComponent({ initialData }: { initialData: any }) {
     }
   }, [tasks, initialData])
 
-  return <DashboardBoard tasks={tasks} />
+  return <DashboardBoard tasks={tasks} workload={workload} />
 }
 
-function DashboardBoard({ tasks }: { tasks: any }) {
+function DashboardBoard({ tasks, workload }: { tasks: any; workload: WorkloadData }) {
   const statusOrder = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
   const { filters, setFilter, clearFilters, hasActiveFilters } = useFilters()
 
@@ -173,6 +183,8 @@ function DashboardBoard({ tasks }: { tasks: any }) {
           projects={projects}
           agents={agents}
         />
+
+        <WorkloadChart data={workload} />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {statusOrder.map((status) => {
