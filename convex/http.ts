@@ -260,7 +260,7 @@ http.route({
  * Returns: Single task object
  */
 http.route({
-  path: '/api/tasks/:id',
+  pathPrefix: '/api/tasks/',
   method: 'GET',
   handler: httpActionGeneric(async (ctx, request) => {
     // Extract task ID from URL path
@@ -412,13 +412,92 @@ http.route({
 })
 
 /**
+ * Claim task
+ * POST /api/tasks/:id/claim
+ * Body: { agent: string }
+ * Returns: { id: taskId }
+ */
+http.route({
+  pathPrefix: '/api/tasks/',
+  method: 'POST',
+  handler: httpActionGeneric(async (ctx, request) => {
+    const url = new URL(request.url)
+    const pathParts = url.pathname.split('/').filter(Boolean)
+    // Expect: ['api', 'tasks', '<id>', 'claim']
+    const lastPart = pathParts[pathParts.length - 1]
+    
+    if (lastPart !== 'claim' || pathParts.length < 4) {
+      return withCors(
+        new Response(
+          JSON.stringify({ error: 'Not found. Use POST /api/tasks/:id/claim' }),
+          {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        ),
+        request.headers.get('Origin') || undefined
+      )
+    }
+    
+    const taskId = pathParts[pathParts.length - 2]
+    
+    try {
+      const body = await request.json()
+      
+      if (!body.agent || typeof body.agent !== 'string') {
+        return withCors(
+          new Response(
+            JSON.stringify({ error: 'Missing or invalid required field: agent' }),
+            {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          ),
+          request.headers.get('Origin') || undefined
+        )
+      }
+      
+      const result = await ctx.runMutation(api.tasks.claimTask, {
+        taskId: taskId as any,
+        agent: body.agent,
+      })
+      
+      return withCors(
+        new Response(
+          JSON.stringify({ id: result }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        ),
+        request.headers.get('Origin') || undefined
+      )
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      const status = errorMessage.includes('not found') ? 404 :
+                     errorMessage.includes('not claimable') ? 409 : 400
+      return withCors(
+        new Response(
+          JSON.stringify({ error: errorMessage }),
+          {
+            status,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        ),
+        request.headers.get('Origin') || undefined
+      )
+    }
+  }),
+})
+
+/**
  * Update task
  * PATCH /api/tasks/:id
  * Body: { status?, priority?, assignedAgent?, notes? }
  * Returns: { success: true }
  */
 http.route({
-  path: '/api/tasks/:id',
+  pathPrefix: '/api/tasks/',
   method: 'PATCH',
   handler: httpActionGeneric(async (ctx, request) => {
     // Extract task ID from URL path
@@ -469,10 +548,10 @@ http.route({
 })
 
 /**
- * OPTIONS handler for /api/tasks/:id CORS preflight
+ * OPTIONS handler for /api/tasks/:id and /api/tasks/:id/claim CORS preflight
  */
 http.route({
-  path: '/api/tasks/:id',
+  pathPrefix: '/api/tasks/',
   method: 'OPTIONS',
   handler: httpActionGeneric(async () => {
     return withCors(

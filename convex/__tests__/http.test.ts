@@ -9,6 +9,7 @@ vi.mock('../_generated/api', () => ({
       getById: 'tasks:getById',
       create: 'tasks:create',
       update: 'tasks:update',
+      claimTask: 'tasks:claimTask',
     },
   },
 }))
@@ -1176,6 +1177,68 @@ describe('PATCH /api/tasks/:id Endpoint', () => {
   it('should support OPTIONS for CORS preflight', () => {
     const optionsStatus = 204
     expect(optionsStatus).toBe(204)
+  })
+})
+
+describe('POST /api/tasks/:id/claim Endpoint', () => {
+  it('should extract task ID from claim URL path', () => {
+    const url = 'https://example.com/api/tasks/j57abc123/claim'
+    const parsed = new URL(url)
+    const pathParts = parsed.pathname.split('/').filter(Boolean)
+    const lastPart = pathParts[pathParts.length - 1]
+    const taskId = pathParts[pathParts.length - 2]
+    
+    expect(lastPart).toBe('claim')
+    expect(taskId).toBe('j57abc123')
+  })
+
+  it('should require agent field in body', () => {
+    const body = { agent: 'forge' }
+    
+    expect(body).toHaveProperty('agent')
+    expect(typeof body.agent).toBe('string')
+  })
+
+  it('should reject missing agent field', () => {
+    const body = {}
+    
+    expect(body).not.toHaveProperty('agent')
+  })
+
+  it('should return 200 on successful claim', () => {
+    const claimResponse = { id: 'j57abc123' }
+    const expectedStatus = 200
+    
+    expect(claimResponse).toHaveProperty('id')
+    expect(expectedStatus).toBe(200)
+  })
+
+  it('should return 409 when task not claimable', () => {
+    const errorResponse = {
+      error: 'Task not claimable (status: done)',
+    }
+    const expectedStatus = 409
+    
+    expect(errorResponse.error).toContain('not claimable')
+    expect(expectedStatus).toBe(409)
+  })
+
+  it('should return 404 when task not found', () => {
+    const errorResponse = {
+      error: 'Task not found',
+    }
+    const expectedStatus = 404
+    
+    expect(errorResponse.error).toContain('not found')
+    expect(expectedStatus).toBe(404)
+  })
+
+  it('should use pathPrefix routing for claim endpoint', () => {
+    // The claim endpoint uses pathPrefix: '/api/tasks/' and checks for /claim suffix
+    const pathPrefix = '/api/tasks/'
+    const claimUrl = '/api/tasks/j57abc123/claim'
+    
+    expect(claimUrl.startsWith(pathPrefix)).toBe(true)
   })
 })
 

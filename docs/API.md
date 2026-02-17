@@ -277,6 +277,42 @@ curl -X PATCH "https://<your-deployment>.convex.site/api/tasks/j57dqjdex468cp085
 
 ---
 
+### POST /api/tasks/:id/claim
+
+Claim a task for an agent. Sets the task to `in_progress` and assigns the agent.
+
+**Request Body**
+```json
+{
+  "agent": "forge"
+}
+```
+
+**Response** `200`
+```json
+{
+  "id": "j57dqjdex468cp0855v142v8pd81aj6d"
+}
+```
+
+**Errors**
+| Status | Description |
+|--------|-------------|
+| 400 | Missing or invalid `agent` field |
+| 404 | Task not found |
+| 409 | Task not claimable (wrong status) |
+
+**Example**
+```bash
+curl -X POST "https://<your-deployment>.convex.site/api/tasks/j57dqjdex468cp0855v142v8pd81aj6d/claim" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent": "forge"
+  }'
+```
+
+---
+
 ### GET /api/workload
 
 Returns agent workload statistics aggregated across all tasks.
