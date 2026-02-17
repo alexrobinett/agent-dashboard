@@ -68,6 +68,7 @@ export const api = {
     getById: {} as any,
     create: {} as any,
     update: {} as any,
+    deleteTask: {} as any,
   },
 };
 EOF

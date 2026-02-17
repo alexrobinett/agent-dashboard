@@ -469,6 +469,53 @@ http.route({
 })
 
 /**
+ * Delete task
+ * DELETE /api/tasks/:id
+ * Returns: { success: true }
+ */
+http.route({
+  pathPrefix: '/api/tasks/',
+  method: 'DELETE',
+  handler: httpActionGeneric(async (ctx, request) => {
+    const url = new URL(request.url)
+    const pathParts = url.pathname.split('/')
+    const taskId = pathParts[pathParts.length - 1]
+
+    try {
+      await ctx.runMutation(api.tasks.deleteTask, {
+        taskId: taskId as any,
+      })
+
+      return withCors(
+        new Response(
+          JSON.stringify({ success: true }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }
+        )
+      )
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      const status = errorMessage.includes('not found') ? 404 : 400
+      return withCors(
+        new Response(
+          JSON.stringify({ error: errorMessage }),
+          {
+            status,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }
+        )
+      )
+    }
+  }),
+})
+
+/**
  * OPTIONS handler for /api/tasks/:id CORS preflight
  */
 http.route({
