@@ -26,6 +26,34 @@ const getWorkloadHandler = (taskModule.getWorkload as unknown as HandlerExtracto
 const createHandler = (taskModule.create as unknown as HandlerExtractor).handler
 const updateHandler = (taskModule.update as unknown as HandlerExtractor).handler
 
+// New mutation handlers (clawd workflow)
+const pushStatusHandler = (taskModule.pushStatus as unknown as HandlerExtractor).handler
+const pushEventHandler = (taskModule.pushEvent as unknown as HandlerExtractor).handler
+const createTaskHandler = (taskModule.createTask as unknown as HandlerExtractor).handler
+const claimTaskHandler = (taskModule.claimTask as unknown as HandlerExtractor).handler
+const startTaskHandler = (taskModule.startTask as unknown as HandlerExtractor).handler
+const completeTaskHandler = (taskModule.completeTask as unknown as HandlerExtractor).handler
+const submitForReviewHandler = (taskModule.submitForReview as unknown as HandlerExtractor).handler
+const submitForReviewAndAssignHandler = (taskModule.submitForReviewAndAssign as unknown as HandlerExtractor).handler
+const updateTaskHandler = (taskModule.updateTask as unknown as HandlerExtractor).handler
+const handoffTaskHandler = (taskModule.handoffTask as unknown as HandlerExtractor).handler
+const deleteTaskHandler = (taskModule.deleteTask as unknown as HandlerExtractor).handler
+const listTasksHandler = (taskModule.listTasks as unknown as HandlerExtractor).handler
+const getTaskHandler = (taskModule.getTask as unknown as HandlerExtractor).handler
+const getBoardHandler = (taskModule.getBoard as unknown as HandlerExtractor).handler
+const getWorkloadByAgentStatusHandler = (taskModule.getWorkloadByAgentStatus as unknown as HandlerExtractor).handler
+const getLeaseHandler = (taskModule.getLease as unknown as HandlerExtractor).handler
+
+// Deprecated handlers
+const recoverStaleTasksHandler = (taskModule.recoverStaleTasks as unknown as HandlerExtractor).handler
+const agentHeartbeatHandler = (taskModule.agentHeartbeat as unknown as HandlerExtractor).handler
+const acquireLeaseHandler = (taskModule.acquireLease as unknown as HandlerExtractor).handler
+const releaseLeaseHandler = (taskModule.releaseLease as unknown as HandlerExtractor).handler
+const refreshLeaseHandler = (taskModule.refreshLease as unknown as HandlerExtractor).handler
+const transferLeaseHandler = (taskModule.transferLease as unknown as HandlerExtractor).handler
+const casClaimHandler = (taskModule.casClaim as unknown as HandlerExtractor).handler
+const sanitizeTaskTextFieldsHandler = (taskModule.sanitizeTaskTextFields as unknown as HandlerExtractor).handler
+
 // ──────────────────────────────────────────────────────────
 // Helper: build a mock Convex QueryCtx
 // ──────────────────────────────────────────────────────────
@@ -42,19 +70,57 @@ function makeTask(overrides: Partial<Task> & { _id: TaskId }): Task {
 }
 
 function mockCtx(tasks: Task[]) {
-  return {
+  // Track patches for assertions
+  const patches: Array<{ id: TaskId; fields: Record<string, unknown> }> = []
+  const inserted: Array<{ table: string; doc: Record<string, unknown> }> = []
+  const deleted: TaskId[] = []
+
+  const ctx = {
+    _patches: patches,
+    _inserted: inserted,
+    _deleted: deleted,
     db: {
-      query: (_table: string) => ({
-        order: (_dir: string) => ({
-          take: async (n: number) => tasks.slice(0, n),
-        }),
-      }),
+      query: (_table: string) => {
+        const makeChain = (filtered: Task[]) => ({
+          order: (_dir: string) => ({
+            take: async (n: number) => filtered.slice(0, n),
+          }),
+          withIndex: (_indexName: string, _indexFn?: (q: any) => any) => {
+            // For index queries, apply simple filtering based on index name
+            let result = [...filtered]
+            if (_indexFn) {
+              const eqCalls: Array<{ field: string; value: string }> = []
+              const indexQ = {
+                eq: (field: string, value: string) => {
+                  eqCalls.push({ field, value })
+                  return indexQ
+                },
+              }
+              _indexFn(indexQ)
+              for (const { field, value } of eqCalls) {
+                result = result.filter((t: any) => t[field] === value)
+              }
+            }
+            return makeChain(result)
+          },
+        })
+        return makeChain([...tasks])
+      },
       get: async (id: TaskId) => tasks.find(t => t._id === id) ?? null,
-      insert: async (_table: string, _doc: Record<string, unknown>) => 'new-id' as TaskId,
-      patch: async (_id: TaskId, _fields: Record<string, unknown>) => {},
-      delete: async (_id: TaskId) => {},
+      insert: async (_table: string, _doc: Record<string, unknown>) => {
+        inserted.push({ table: _table, doc: _doc })
+        return 'new-id' as TaskId
+      },
+      patch: async (_id: TaskId, _fields: Record<string, unknown>) => {
+        patches.push({ id: _id, fields: _fields })
+        // Apply patch to in-memory task for chained operations
+        const task = tasks.find(t => t._id === _id)
+        if (task) Object.assign(task, _fields)
+      },
+      delete: async (_id: TaskId) => { deleted.push(_id) },
     },
   }
+  return ctx
 }
 
 // ──────────────────────────────────────────────────────────
@@ -1013,5 +1079,1120 @@ describe('update Mutation - Edge Cases', () => {
     if (updateArgs.notes !== undefined) updates.notes = updateArgs.notes
     
     expect(updates.notes).toBe('   ')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════
+// NEW TESTS — Agent Workflow Mutations (clawd)
+// ═══════════════════════════════════════════════════════════
+
+// Helper: mock ctx with SYSTEM_TOKEN for deprecated mutations
+function mockCtxWithToken(tasks: Task[], token = 'test-system-token') {
+  const ctx = mockCtx(tasks)
+  // Set up process.env for verifySystemToken
+  const g = globalThis as { process?: { env?: Record<string, string | undefined> } }
+  if (!g.process) g.process = {}
+  if (!g.process.env) g.process.env = {}
+  g.process.env.SYSTEM_TOKEN = token
+  return ctx
+}
+
+// ──────────────────────────────────────────────────────────
+// pushStatus
+// ──────────────────────────────────────────────────────────
+describe('pushStatus', () => {
+  it('should update task status and append log to notes', async () => {
+    const task = makeTask({ _id: 't1' as TaskId, status: 'ready', notes: '' })
+    const ctx = mockCtx([task])
+    const result = await pushStatusHandler(ctx, {
+      taskId: 't1' as TaskId,
+      status: 'in_progress',
+      actor: 'forge',
+    })
+    expect(result).toEqual({ ok: true, version: 1 })
+    expect(ctx._patches[0].fields.status).toBe('in_progress')
+    expect(ctx._patches[0].fields.startedAt).toBeDefined()
+  })
+
+  it('should throw when task not found', async () => {
+    const ctx = mockCtx([])
+    await expect(pushStatusHandler(ctx, {
+      taskId: 'missing' as TaskId,
+      status: 'done',
+      actor: 'forge',
+    })).rejects.toThrow('Task not found')
+  })
+
+  it('should set completedAt when status is done', async () => {
+    const task = makeTask({ _id: 't2' as TaskId, status: 'in_progress' })
+    const ctx = mockCtx([task])
+    await pushStatusHandler(ctx, {
+      taskId: 't2' as TaskId,
+      status: 'done',
+      actor: 'forge',
+    })
+    expect(ctx._patches[0].fields.completedAt).toBeDefined()
+  })
+
+  it('should not overwrite existing startedAt', async () => {
+    const task = makeTask({ _id: 't3' as TaskId, status: 'ready', startedAt: 1000 })
+    const ctx = mockCtx([task])
+    await pushStatusHandler(ctx, {
+      taskId: 't3' as TaskId,
+      status: 'in_progress',
+      actor: 'forge',
+    })
+    expect(ctx._patches[0].fields.startedAt).toBeUndefined()
+  })
+
+  it('should include note in log entry', async () => {
+    const task = makeTask({ _id: 't4' as TaskId, status: 'ready', notes: '' })
+    const ctx = mockCtx([task])
+    await pushStatusHandler(ctx, {
+      taskId: 't4' as TaskId,
+      status: 'in_progress',
+      actor: 'forge',
+      note: 'starting work',
+    })
+    expect(ctx._patches[0].fields.notes).toContain('starting work')
+  })
+
+  it('should set runId and sessionKey when provided', async () => {
+    const task = makeTask({ _id: 't5' as TaskId, status: 'ready' })
+    const ctx = mockCtx([task])
+    await pushStatusHandler(ctx, {
+      taskId: 't5' as TaskId,
+      status: 'in_progress',
+      actor: 'forge',
+      runId: 'run-123',
+      sessionKey: 'sess-456',
+    })
+    expect(ctx._patches[0].fields.runId).toBe('run-123')
+    expect(ctx._patches[0].fields.sessionKey).toBe('sess-456')
+  })
+
+  it('should increment version', async () => {
+    const task = makeTask({ _id: 't6' as TaskId, status: 'ready', version: 5 } as any)
+    const ctx = mockCtx([task])
+    const result = await pushStatusHandler(ctx, {
+      taskId: 't6' as TaskId,
+      status: 'in_progress',
+      actor: 'forge',
+    })
+    expect(result.version).toBe(6)
+  })
+
+  it('should append to existing notes', async () => {
+    const task = makeTask({ _id: 't7' as TaskId, status: 'ready', notes: 'existing note' })
+    const ctx = mockCtx([task])
+    await pushStatusHandler(ctx, {
+      taskId: 't7' as TaskId,
+      status: 'in_progress',
+      actor: 'forge',
+    })
+    const notes = ctx._patches[0].fields.notes as string
+    expect(notes).toContain('existing note')
+    expect(notes).toContain('forge: status → in_progress')
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// pushEvent
+// ──────────────────────────────────────────────────────────
+describe('pushEvent', () => {
+  it('should append event to task notes', async () => {
+    const task = makeTask({ _id: 'e1' as TaskId, notes: '' })
+    const ctx = mockCtx([task])
+    const result = await pushEventHandler(ctx, {
+      taskId: 'e1' as TaskId,
+      event: 'test_started',
+      actor: 'forge',
+    })
+    expect(result).toEqual({ ok: true })
+    expect(ctx._patches[0].fields.notes).toContain('forge: test_started')
+  })
+
+  it('should throw when task not found', async () => {
+    const ctx = mockCtx([])
+    await expect(pushEventHandler(ctx, {
+      taskId: 'missing' as TaskId,
+      event: 'test',
+      actor: 'forge',
+    })).rejects.toThrow('Task not found')
+  })
+
+  it('should include details in log entry', async () => {
+    const task = makeTask({ _id: 'e2' as TaskId, notes: '' })
+    const ctx = mockCtx([task])
+    await pushEventHandler(ctx, {
+      taskId: 'e2' as TaskId,
+      event: 'error',
+      actor: 'forge',
+      details: 'something went wrong',
+    })
+    expect(ctx._patches[0].fields.notes).toContain('something went wrong')
+  })
+
+  it('should increment version', async () => {
+    const task = makeTask({ _id: 'e3' as TaskId, version: 3 } as any)
+    const ctx = mockCtx([task])
+    await pushEventHandler(ctx, {
+      taskId: 'e3' as TaskId,
+      event: 'progress',
+      actor: 'forge',
+    })
+    expect(ctx._patches[0].fields.version).toBe(4)
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// createTask — full validation
+// ──────────────────────────────────────────────────────────
+describe('createTask — full validation', () => {
+  it('should create a task with minimal args', async () => {
+    const ctx = mockCtx([])
+    const result = await createTaskHandler(ctx, { title: 'Test' })
+    expect(result).toBe('new-id')
+  })
+
+  it('should default to planning when no agent assigned', async () => {
+    const ctx = mockCtx([])
+    await createTaskHandler(ctx, { title: 'Test' })
+    expect(ctx._inserted[0].doc.status).toBe('planning')
+  })
+
+  it('should default to ready when agent assigned', async () => {
+    const ctx = mockCtx([])
+    await createTaskHandler(ctx, { title: 'Test', assignedAgent: 'forge' })
+    expect(ctx._inserted[0].doc.status).toBe('ready')
+  })
+
+  it('should sanitize title', async () => {
+    const ctx = mockCtx([])
+    await createTaskHandler(ctx, { title: 'Test\x00\x01Title' })
+    expect(ctx._inserted[0].doc.title).toBe('Test  Title')
+  })
+
+  it('should truncate long titles to 200 chars', async () => {
+    const ctx = mockCtx([])
+    const longTitle = 'x'.repeat(300)
+    await createTaskHandler(ctx, { title: longTitle })
+    expect((ctx._inserted[0].doc.title as string).length).toBe(200)
+  })
+
+  it('should set startedAt when created with in_progress status', async () => {
+    const ctx = mockCtx([])
+    await createTaskHandler(ctx, { title: 'Test', status: 'in_progress' })
+    expect(ctx._inserted[0].doc.startedAt).toBeDefined()
+  })
+
+  it('should set version to 0 and attemptCount to 0', async () => {
+    const ctx = mockCtx([])
+    await createTaskHandler(ctx, { title: 'Test' })
+    expect(ctx._inserted[0].doc.version).toBe(0)
+    expect(ctx._inserted[0].doc.attemptCount).toBe(0)
+  })
+
+  it('should accept all optional fields', async () => {
+    const ctx = mockCtx([])
+    await createTaskHandler(ctx, {
+      title: 'Full',
+      description: 'desc',
+      assignedAgent: 'forge',
+      createdBy: 'main',
+      priority: 'high',
+      status: 'ready',
+      project: 'proj',
+      notes: 'note',
+      tags: ['tag1'],
+    })
+    const doc = ctx._inserted[0].doc
+    expect(doc.description).toBe('desc')
+    expect(doc.priority).toBe('high')
+    expect(doc.tags).toEqual(['tag1'])
+  })
+
+  it('should default createdBy to main', async () => {
+    const ctx = mockCtx([])
+    await createTaskHandler(ctx, { title: 'Test' })
+    expect(ctx._inserted[0].doc.createdBy).toBe('main')
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// claimTask
+// ──────────────────────────────────────────────────────────
+describe('claimTask', () => {
+  it('should claim a ready task', async () => {
+    const task = makeTask({ _id: 'c1' as TaskId, status: 'ready' })
+    const ctx = mockCtx([task])
+    const result = await claimTaskHandler(ctx, { taskId: 'c1' as TaskId, agent: 'forge' })
+    expect(result).toBe('c1')
+    expect(ctx._patches[0].fields.assignedAgent).toBe('forge')
+    expect(ctx._patches[0].fields.status).toBe('in_progress')
+  })
+
+  it('should claim a planning task', async () => {
+    const task = makeTask({ _id: 'c2' as TaskId, status: 'planning' })
+    const ctx = mockCtx([task])
+    await claimTaskHandler(ctx, { taskId: 'c2' as TaskId, agent: 'forge' })
+    expect(ctx._patches[0].fields.status).toBe('in_progress')
+  })
+
+  it('should throw when task not found', async () => {
+    const ctx = mockCtx([])
+    await expect(claimTaskHandler(ctx, { taskId: 'missing' as TaskId, agent: 'forge' }))
+      .rejects.toThrow('Task not found')
+  })
+
+  it('should throw when task is in_progress', async () => {
+    const task = makeTask({ _id: 'c3' as TaskId, status: 'in_progress' })
+    const ctx = mockCtx([task])
+    await expect(claimTaskHandler(ctx, { taskId: 'c3' as TaskId, agent: 'forge' }))
+      .rejects.toThrow('Task not claimable')
+  })
+
+  it('should throw when task is done', async () => {
+    const task = makeTask({ _id: 'c4' as TaskId, status: 'done' })
+    const ctx = mockCtx([task])
+    await expect(claimTaskHandler(ctx, { taskId: 'c4' as TaskId, agent: 'forge' }))
+      .rejects.toThrow('Task not claimable')
+  })
+
+  it('should set startedAt', async () => {
+    const task = makeTask({ _id: 'c5' as TaskId, status: 'ready' })
+    const ctx = mockCtx([task])
+    await claimTaskHandler(ctx, { taskId: 'c5' as TaskId, agent: 'forge' })
+    expect(ctx._patches[0].fields.startedAt).toBeDefined()
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// startTask
+// ──────────────────────────────────────────────────────────
+describe('startTask', () => {
+  it('should start a ready task', async () => {
+    const task = makeTask({ _id: 's1' as TaskId, status: 'ready' })
+    const ctx = mockCtx([task])
+    const result = await startTaskHandler(ctx, { taskId: 's1' as TaskId })
+    expect(result).toBe('s1')
+    expect(ctx._patches[0].fields.status).toBe('in_progress')
+  })
+
+  it('should start a planning task', async () => {
+    const task = makeTask({ _id: 's2' as TaskId, status: 'planning' })
+    const ctx = mockCtx([task])
+    await startTaskHandler(ctx, { taskId: 's2' as TaskId })
+    expect(ctx._patches[0].fields.status).toBe('in_progress')
+  })
+
+  it('should throw when task not found', async () => {
+    const ctx = mockCtx([])
+    await expect(startTaskHandler(ctx, { taskId: 'missing' as TaskId }))
+      .rejects.toThrow('Task not found')
+  })
+
+  it('should throw when task is done', async () => {
+    const task = makeTask({ _id: 's3' as TaskId, status: 'done' })
+    const ctx = mockCtx([task])
+    await expect(startTaskHandler(ctx, { taskId: 's3' as TaskId }))
+      .rejects.toThrow('Cannot start task')
+  })
+
+  it('should not overwrite existing startedAt', async () => {
+    const task = makeTask({ _id: 's4' as TaskId, status: 'ready', startedAt: 1000 } as any)
+    const ctx = mockCtx([task])
+    await startTaskHandler(ctx, { taskId: 's4' as TaskId })
+    expect(ctx._patches[0].fields.startedAt).toBe(1000)
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// completeTask
+// ──────────────────────────────────────────────────────────
+describe('completeTask', () => {
+  it('should complete an in_progress task', async () => {
+    const task = makeTask({ _id: 'd1' as TaskId, status: 'in_progress' })
+    const ctx = mockCtx([task])
+    const result = await completeTaskHandler(ctx, { taskId: 'd1' as TaskId })
+    expect(result).toBe('d1')
+    expect(ctx._patches[0].fields.status).toBe('done')
+    expect(ctx._patches[0].fields.completedAt).toBeDefined()
+  })
+
+  it('should throw when task not found', async () => {
+    const ctx = mockCtx([])
+    await expect(completeTaskHandler(ctx, { taskId: 'missing' as TaskId }))
+      .rejects.toThrow('Task not found')
+  })
+
+  it('should throw when already done', async () => {
+    const task = makeTask({ _id: 'd2' as TaskId, status: 'done' })
+    const ctx = mockCtx([task])
+    await expect(completeTaskHandler(ctx, { taskId: 'd2' as TaskId }))
+      .rejects.toThrow('Task already completed')
+  })
+
+  it('should throw when cancelled', async () => {
+    const task = makeTask({ _id: 'd3' as TaskId, status: 'cancelled' })
+    const ctx = mockCtx([task])
+    await expect(completeTaskHandler(ctx, { taskId: 'd3' as TaskId }))
+      .rejects.toThrow('Cannot complete a cancelled task')
+  })
+
+  it('should clear lease fields', async () => {
+    const task = makeTask({ _id: 'd4' as TaskId, status: 'in_progress', leaseOwner: 'forge', leaseExpiresAt: Date.now() + 9999 } as any)
+    const ctx = mockCtx([task])
+    await completeTaskHandler(ctx, { taskId: 'd4' as TaskId })
+    expect(ctx._patches[0].fields.leaseOwner).toBeUndefined()
+    expect(ctx._patches[0].fields.leaseExpiresAt).toBeUndefined()
+  })
+
+  it('should sanitize result text', async () => {
+    const task = makeTask({ _id: 'd5' as TaskId, status: 'in_progress' })
+    const ctx = mockCtx([task])
+    await completeTaskHandler(ctx, { taskId: 'd5' as TaskId, result: 'done\x00ok' })
+    expect(ctx._patches[0].fields.result).toBe('done ok')
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// submitForReview / submitForReviewAndAssign
+// ──────────────────────────────────────────────────────────
+describe('submitForReview', () => {
+  it('should submit in_progress task for review', async () => {
+    const task = makeTask({ _id: 'r1' as TaskId, status: 'in_progress' })
+    const ctx = mockCtx([task])
+    const result = await submitForReviewHandler(ctx, { taskId: 'r1' as TaskId })
+    expect(result).toBe('r1')
+    expect(ctx._patches[0].fields.status).toBe('in_review')
+  })
+
+  it('should throw when task not found', async () => {
+    const ctx = mockCtx([])
+    await expect(submitForReviewHandler(ctx, { taskId: 'missing' as TaskId }))
+      .rejects.toThrow('Task not found')
+  })
+
+  it('should throw for invalid transition (done → in_review)', async () => {
+    const task = makeTask({ _id: 'r2' as TaskId, status: 'done' })
+    const ctx = mockCtx([task])
+    await expect(submitForReviewHandler(ctx, { taskId: 'r2' as TaskId }))
+      .rejects.toThrow('Cannot submit for review')
+  })
+
+  it('should update notes when provided', async () => {
+    const task = makeTask({ _id: 'r3' as TaskId, status: 'in_progress' })
+    const ctx = mockCtx([task])
+    await submitForReviewHandler(ctx, { taskId: 'r3' as TaskId, notes: 'ready for review' })
+    expect(ctx._patches[0].fields.notes).toBe('ready for review')
+  })
+})
+
+describe('submitForReviewAndAssign', () => {
+  it('should assign reviewer and move to in_review', async () => {
+    const task = makeTask({ _id: 'ra1' as TaskId, status: 'in_progress' })
+    const ctx = mockCtx([task])
+    const result = await submitForReviewAndAssignHandler(ctx, {
+      taskId: 'ra1' as TaskId,
+      reviewer: 'sentinel',
+    })
+    expect(result).toBe('ra1')
+    expect(ctx._patches[0].fields.assignedAgent).toBe('sentinel')
+    expect(ctx._patches[0].fields.status).toBe('in_review')
+  })
+
+  it('should throw for invalid transition', async () => {
+    const task = makeTask({ _id: 'ra2' as TaskId, status: 'done' })
+    const ctx = mockCtx([task])
+    await expect(submitForReviewAndAssignHandler(ctx, {
+      taskId: 'ra2' as TaskId,
+      reviewer: 'sentinel',
+    })).rejects.toThrow('Cannot submit for review')
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// State machine transitions (via updateTask)
+// ──────────────────────────────────────────────────────────
+describe('State machine transitions', () => {
+  const validTransitions: [string, string][] = [
+    ['planning', 'ready'],
+    ['planning', 'cancelled'],
+    ['planning', 'blocked'],
+    ['ready', 'in_progress'],
+    ['ready', 'planning'],
+    ['ready', 'cancelled'],
+    ['ready', 'blocked'],
+    ['in_progress', 'in_review'],
+    ['in_progress', 'done'],
+    ['in_progress', 'blocked'],
+    ['in_progress', 'ready'],
+    ['in_progress', 'cancelled'],
+    ['in_review', 'done'],
+    ['in_review', 'in_progress'],
+    ['in_review', 'ready'],
+    ['in_review', 'blocked'],
+    ['in_review', 'cancelled'],
+    ['blocked', 'ready'],
+    ['blocked', 'planning'],
+    ['blocked', 'cancelled'],
+  ]
+
+  for (const [from, to] of validTransitions) {
+    it(`should allow ${from} → ${to}`, async () => {
+      const task = makeTask({ _id: 'sm' as TaskId, status: from })
+      const ctx = mockCtx([task])
+      await updateTaskHandler(ctx, { taskId: 'sm' as TaskId, status: to })
+      expect(ctx._patches[0].fields.status).toBe(to)
+    })
+  }
+
+  const invalidTransitions: [string, string][] = [
+    ['done', 'in_progress'],
+    ['done', 'ready'],
+    ['cancelled', 'ready'],
+    ['cancelled', 'in_progress'],
+    ['planning', 'done'],
+    ['planning', 'in_review'],
+    ['ready', 'done'],
+    ['blocked', 'in_progress'],
+    ['blocked', 'done'],
+  ]
+
+  for (const [from, to] of invalidTransitions) {
+    it(`should reject ${from} → ${to}`, async () => {
+      const task = makeTask({ _id: 'sm' as TaskId, status: from })
+      const ctx = mockCtx([task])
+      await expect(updateTaskHandler(ctx, { taskId: 'sm' as TaskId, status: to }))
+        .rejects.toThrow('Invalid transition')
+    })
+  }
+
+  it('should bump version on status change', async () => {
+    const task = makeTask({ _id: 'sv' as TaskId, status: 'ready', version: 2 } as any)
+    const ctx = mockCtx([task])
+    await updateTaskHandler(ctx, { taskId: 'sv' as TaskId, status: 'in_progress' })
+    expect(ctx._patches[0].fields.version).toBe(3)
+  })
+
+  it('should reject version mismatch', async () => {
+    const task = makeTask({ _id: 'vm' as TaskId, status: 'ready', version: 5 } as any)
+    const ctx = mockCtx([task])
+    await expect(updateTaskHandler(ctx, {
+      taskId: 'vm' as TaskId,
+      status: 'in_progress',
+      expectedVersion: 3,
+    })).rejects.toThrow('Version mismatch')
+  })
+
+  it('should set startedAt on transition to in_progress', async () => {
+    const task = makeTask({ _id: 'sa' as TaskId, status: 'ready' })
+    const ctx = mockCtx([task])
+    await updateTaskHandler(ctx, { taskId: 'sa' as TaskId, status: 'in_progress' })
+    expect(ctx._patches[0].fields.startedAt).toBeDefined()
+  })
+
+  it('should set completedAt on transition to done', async () => {
+    const task = makeTask({ _id: 'ca' as TaskId, status: 'in_progress' })
+    const ctx = mockCtx([task])
+    await updateTaskHandler(ctx, { taskId: 'ca' as TaskId, status: 'done' })
+    expect(ctx._patches[0].fields.completedAt).toBeDefined()
+  })
+
+  it('should clear blockedReason when leaving blocked', async () => {
+    const task = makeTask({ _id: 'br' as TaskId, status: 'blocked', blockedReason: 'waiting' } as any)
+    const ctx = mockCtx([task])
+    await updateTaskHandler(ctx, { taskId: 'br' as TaskId, status: 'ready' })
+    expect(ctx._patches[0].fields.blockedReason).toBeUndefined()
+  })
+
+  it('should clear lease fields on certain transitions', async () => {
+    const task = makeTask({ _id: 'lf' as TaskId, status: 'in_progress', leaseOwner: 'x' } as any)
+    const ctx = mockCtx([task])
+    await updateTaskHandler(ctx, { taskId: 'lf' as TaskId, status: 'ready' })
+    expect(ctx._patches[0].fields.leaseOwner).toBeUndefined()
+    expect(ctx._patches[0].fields.leaseExpiresAt).toBeUndefined()
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// updateTask — field updates
+// ──────────────────────────────────────────────────────────
+describe('updateTask', () => {
+  it('should throw when task not found', async () => {
+    const ctx = mockCtx([])
+    await expect(updateTaskHandler(ctx, { taskId: 'missing' as TaskId }))
+      .rejects.toThrow('Task not found')
+  })
+
+  it('should update title, description, project, notes', async () => {
+    const task = makeTask({ _id: 'ut1' as TaskId })
+    const ctx = mockCtx([task])
+    await updateTaskHandler(ctx, {
+      taskId: 'ut1' as TaskId,
+      title: 'New Title',
+      description: 'New Desc',
+      project: 'new-proj',
+      notes: 'new notes',
+    })
+    const p = ctx._patches[0].fields
+    expect(p.title).toBe('New Title')
+    expect(p.description).toBe('New Desc')
+    expect(p.project).toBe('new-proj')
+    expect(p.notes).toBe('new notes')
+  })
+
+  it('should update priority and assignedAgent', async () => {
+    const task = makeTask({ _id: 'ut2' as TaskId })
+    const ctx = mockCtx([task])
+    await updateTaskHandler(ctx, {
+      taskId: 'ut2' as TaskId,
+      priority: 'urgent',
+      assignedAgent: 'sentinel',
+    })
+    expect(ctx._patches[0].fields.priority).toBe('urgent')
+    expect(ctx._patches[0].fields.assignedAgent).toBe('sentinel')
+  })
+
+  it('should update blockedReason', async () => {
+    const task = makeTask({ _id: 'ut3' as TaskId, status: 'in_progress' })
+    const ctx = mockCtx([task])
+    await updateTaskHandler(ctx, {
+      taskId: 'ut3' as TaskId,
+      status: 'blocked',
+      blockedReason: 'waiting for API',
+    })
+    expect(ctx._patches[0].fields.blockedReason).toBe('waiting for API')
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// Dependency validation
+// ──────────────────────────────────────────────────────────
+describe('Dependency validation', () => {
+  it('should reject invalid dependency IDs', async () => {
+    const ctx = mockCtx([])
+    await expect(createTaskHandler(ctx, {
+      title: 'Test',
+      dependsOn: ['nonexistent' as TaskId],
+    })).rejects.toThrow('Invalid dependency IDs')
+  })
+
+  it('should accept valid dependency IDs', async () => {
+    const dep = makeTask({ _id: 'dep1' as TaskId })
+    const ctx = mockCtx([dep])
+    const result = await createTaskHandler(ctx, {
+      title: 'Test',
+      dependsOn: ['dep1' as TaskId],
+    })
+    expect(result).toBe('new-id')
+  })
+
+  it('should detect circular dependencies in updateTask', async () => {
+    // Task A depends on B, now try to make B depend on A
+    const taskA = makeTask({ _id: 'a' as TaskId, dependsOn: ['b'] } as any)
+    const taskB = makeTask({ _id: 'b' as TaskId })
+    const ctx = mockCtx([taskA, taskB])
+    await expect(updateTaskHandler(ctx, {
+      taskId: 'b' as TaskId,
+      dependsOn: ['a'],
+    })).rejects.toThrow('Circular dependency')
+  })
+
+  it('should update dependsOn when valid', async () => {
+    const dep = makeTask({ _id: 'dep2' as TaskId })
+    const task = makeTask({ _id: 'main' as TaskId })
+    const ctx = mockCtx([dep, task])
+    await updateTaskHandler(ctx, {
+      taskId: 'main' as TaskId,
+      dependsOn: ['dep2'],
+    })
+    expect(ctx._patches[0].fields.dependsOn).toEqual(['dep2'])
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// Text sanitization
+// ──────────────────────────────────────────────────────────
+describe('Text sanitization', () => {
+  it('should strip control characters from sanitizeText', () => {
+    expect(taskModule.sanitizeText('hello\x00world\x01!')).toBe('hello world !')
+  })
+
+  it('should truncate text to maxLen', () => {
+    const long = 'a'.repeat(5000)
+    expect(taskModule.sanitizeText(long, 100).length).toBe(100)
+  })
+
+  it('should return undefined for undefined input', () => {
+    expect(taskModule.sanitizeOptionalText(undefined)).toBeUndefined()
+  })
+
+  it('should sanitize optional text', () => {
+    expect(taskModule.sanitizeOptionalText('ok\x00')).toBe('ok ')
+  })
+
+  it('should sanitize notes in updateTask', async () => {
+    const task = makeTask({ _id: 'st1' as TaskId })
+    const ctx = mockCtx([task])
+    await updateTaskHandler(ctx, {
+      taskId: 'st1' as TaskId,
+      notes: 'clean\x00text',
+    })
+    expect(ctx._patches[0].fields.notes).toBe('clean text')
+  })
+
+  it('should sanitize title in createTask', async () => {
+    const ctx = mockCtx([])
+    await createTaskHandler(ctx, { title: '\x07bell\x08back' })
+    expect(ctx._inserted[0].doc.title).toBe(' bell back')
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// handoffTask
+// ──────────────────────────────────────────────────────────
+describe('handoffTask', () => {
+  it('should hand off task to another agent', async () => {
+    const task = makeTask({ _id: 'h1' as TaskId, status: 'in_progress', assignedAgent: 'forge' })
+    const ctx = mockCtx([task])
+    const result = await handoffTaskHandler(ctx, {
+      taskId: 'h1' as TaskId,
+      toAgent: 'sentinel',
+    })
+    expect(result).toBe('h1')
+    expect(ctx._patches[0].fields.assignedAgent).toBe('sentinel')
+    expect(ctx._patches[0].fields.status).toBe('ready')
+  })
+
+  it('should throw when task not found', async () => {
+    const ctx = mockCtx([])
+    await expect(handoffTaskHandler(ctx, {
+      taskId: 'missing' as TaskId,
+      toAgent: 'sentinel',
+    })).rejects.toThrow('Task not found')
+  })
+
+  it('should update notes on handoff', async () => {
+    const task = makeTask({ _id: 'h2' as TaskId, status: 'in_progress' })
+    const ctx = mockCtx([task])
+    await handoffTaskHandler(ctx, {
+      taskId: 'h2' as TaskId,
+      toAgent: 'sentinel',
+      notes: 'handoff notes',
+    })
+    expect(ctx._patches[0].fields.notes).toBe('handoff notes')
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// deleteTask
+// ──────────────────────────────────────────────────────────
+describe('deleteTask', () => {
+  it('should delete a task', async () => {
+    const task = makeTask({ _id: 'del1' as TaskId })
+    const ctx = mockCtx([task])
+    await deleteTaskHandler(ctx, { taskId: 'del1' as TaskId })
+    expect(ctx._deleted).toContain('del1')
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// Deprecated mutations
+// ──────────────────────────────────────────────────────────
+describe('Deprecated mutations', () => {
+  it('recoverStaleTasks should return empty result', async () => {
+    const ctx = mockCtx([])
+    const result = await recoverStaleTasksHandler(ctx, {})
+    expect(result).toEqual({ recovered: [], count: 0 })
+  })
+
+  it('agentHeartbeat should return ok', async () => {
+    const ctx = mockCtx([])
+    const result = await agentHeartbeatHandler(ctx, {
+      taskId: 'x' as TaskId,
+      agent: 'forge',
+    })
+    expect(result.ok).toBe(true)
+    expect(result.nextHeartbeatBefore).toBeDefined()
+  })
+
+  it('acquireLease should acquire for valid token', async () => {
+    const task = makeTask({ _id: 'al1' as TaskId })
+    const ctx = mockCtxWithToken([task])
+    const result = await acquireLeaseHandler(ctx, {
+      taskId: 'al1' as TaskId,
+      owner: 'forge',
+      ttlMs: 60000,
+      systemToken: 'test-system-token',
+    })
+    expect(result.owner).toBe('forge')
+    expect(result.expiresAt).toBeDefined()
+  })
+
+  it('acquireLease should reject invalid token', async () => {
+    const task = makeTask({ _id: 'al2' as TaskId })
+    const ctx = mockCtxWithToken([task])
+    await expect(acquireLeaseHandler(ctx, {
+      taskId: 'al2' as TaskId,
+      owner: 'forge',
+      ttlMs: 60000,
+      systemToken: 'wrong-token',
+    })).rejects.toThrow('Authentication failed')
+  })
+
+  it('acquireLease should throw when task not found', async () => {
+    const ctx = mockCtxWithToken([])
+    await expect(acquireLeaseHandler(ctx, {
+      taskId: 'missing' as TaskId,
+      owner: 'forge',
+      ttlMs: 60000,
+      systemToken: 'test-system-token',
+    })).rejects.toThrow('Task not found')
+  })
+
+  it('acquireLease should reject when held by another owner', async () => {
+    const task = makeTask({
+      _id: 'al3' as TaskId,
+      leaseOwner: 'other',
+      leaseExpiresAt: Date.now() + 99999,
+    } as any)
+    const ctx = mockCtxWithToken([task])
+    await expect(acquireLeaseHandler(ctx, {
+      taskId: 'al3' as TaskId,
+      owner: 'forge',
+      ttlMs: 60000,
+      systemToken: 'test-system-token',
+    })).rejects.toThrow('Lease is held by another owner')
+  })
+
+  it('acquireLease should renew when same owner holds lease', async () => {
+    const task = makeTask({
+      _id: 'al4' as TaskId,
+      leaseOwner: 'forge',
+      leaseExpiresAt: Date.now() + 99999,
+    } as any)
+    const ctx = mockCtxWithToken([task])
+    const result = await acquireLeaseHandler(ctx, {
+      taskId: 'al4' as TaskId,
+      owner: 'forge',
+      ttlMs: 60000,
+      systemToken: 'test-system-token',
+    })
+    expect(result.owner).toBe('forge')
+  })
+
+  it('releaseLease should release for correct owner', async () => {
+    const task = makeTask({ _id: 'rl1' as TaskId, leaseOwner: 'forge' } as any)
+    const ctx = mockCtxWithToken([task])
+    const result = await releaseLeaseHandler(ctx, {
+      taskId: 'rl1' as TaskId,
+      owner: 'forge',
+      systemToken: 'test-system-token',
+    })
+    expect(result).toEqual({ released: true })
+  })
+
+  it('releaseLease should reject wrong owner', async () => {
+    const task = makeTask({ _id: 'rl2' as TaskId, leaseOwner: 'other' } as any)
+    const ctx = mockCtxWithToken([task])
+    await expect(releaseLeaseHandler(ctx, {
+      taskId: 'rl2' as TaskId,
+      owner: 'forge',
+      systemToken: 'test-system-token',
+    })).rejects.toThrow('not the current owner')
+  })
+
+  it('releaseLease should reject version mismatch', async () => {
+    const task = makeTask({ _id: 'rl3' as TaskId, leaseOwner: 'forge', version: 5 } as any)
+    const ctx = mockCtxWithToken([task])
+    await expect(releaseLeaseHandler(ctx, {
+      taskId: 'rl3' as TaskId,
+      owner: 'forge',
+      expectedVersion: 3,
+      systemToken: 'test-system-token',
+    })).rejects.toThrow('Concurrent modification')
+  })
+
+  it('refreshLease should refresh for correct owner', async () => {
+    const task = makeTask({ _id: 'rf1' as TaskId, leaseOwner: 'forge', leaseExpiresAt: Date.now() + 99999 } as any)
+    const ctx = mockCtxWithToken([task])
+    const result = await refreshLeaseHandler(ctx, {
+      taskId: 'rf1' as TaskId,
+      owner: 'forge',
+      ttlMs: 60000,
+      systemToken: 'test-system-token',
+    })
+    expect(result.owner).toBe('forge')
+  })
+
+  it('refreshLease should reject wrong owner', async () => {
+    const task = makeTask({ _id: 'rf2' as TaskId, leaseOwner: 'other', leaseExpiresAt: Date.now() + 99999 } as any)
+    const ctx = mockCtxWithToken([task])
+    await expect(refreshLeaseHandler(ctx, {
+      taskId: 'rf2' as TaskId,
+      owner: 'forge',
+      ttlMs: 60000,
+      systemToken: 'test-system-token',
+    })).rejects.toThrow('not the current owner')
+  })
+
+  it('refreshLease should reject expired lease', async () => {
+    const task = makeTask({ _id: 'rf3' as TaskId, leaseOwner: 'forge', leaseExpiresAt: 1 } as any)
+    const ctx = mockCtxWithToken([task])
+    await expect(refreshLeaseHandler(ctx, {
+      taskId: 'rf3' as TaskId,
+      owner: 'forge',
+      ttlMs: 60000,
+      systemToken: 'test-system-token',
+    })).rejects.toThrow('lease has expired')
+  })
+
+  it('transferLease should transfer between owners', async () => {
+    const task = makeTask({ _id: 'tl1' as TaskId, leaseOwner: 'forge', leaseExpiresAt: Date.now() + 99999 } as any)
+    const ctx = mockCtxWithToken([task])
+    const result = await transferLeaseHandler(ctx, {
+      taskId: 'tl1' as TaskId,
+      fromOwner: 'forge',
+      toOwner: 'sentinel',
+      systemToken: 'test-system-token',
+    })
+    expect(result.fromOwner).toBe('forge')
+    expect(result.toOwner).toBe('sentinel')
+    expect(result.handoffCount).toBe(1)
+  })
+
+  it('transferLease should reject wrong fromOwner', async () => {
+    const task = makeTask({ _id: 'tl2' as TaskId, leaseOwner: 'other', leaseExpiresAt: Date.now() + 99999 } as any)
+    const ctx = mockCtxWithToken([task])
+    await expect(transferLeaseHandler(ctx, {
+      taskId: 'tl2' as TaskId,
+      fromOwner: 'forge',
+      toOwner: 'sentinel',
+      systemToken: 'test-system-token',
+    })).rejects.toThrow('not held by the specified owner')
+  })
+
+  it('transferLease should reject expired lease', async () => {
+    const task = makeTask({ _id: 'tl3' as TaskId, leaseOwner: 'forge', leaseExpiresAt: 1 } as any)
+    const ctx = mockCtxWithToken([task])
+    await expect(transferLeaseHandler(ctx, {
+      taskId: 'tl3' as TaskId,
+      fromOwner: 'forge',
+      toOwner: 'sentinel',
+      systemToken: 'test-system-token',
+    })).rejects.toThrow('lease has expired')
+  })
+
+  it('casClaim should claim task with valid token', async () => {
+    const task = makeTask({ _id: 'cc1' as TaskId, status: 'ready' })
+    const ctx = mockCtxWithToken([task])
+    const result = await casClaimHandler(ctx, {
+      taskId: 'cc1' as TaskId,
+      agent: 'forge',
+      fromStatuses: 'ready,planning',
+      toStatus: 'in_progress',
+      systemToken: 'test-system-token',
+    })
+    expect(result.success).toBe(true)
+    // previousStatus is captured before patch, but our mock mutates in-place
+    // so we just check it's truthy
+    expect(result.previousStatus).toBeDefined()
+  })
+
+  it('casClaim should fail when status not in allowed list', async () => {
+    const task = makeTask({ _id: 'cc2' as TaskId, status: 'done' })
+    const ctx = mockCtxWithToken([task])
+    const result = await casClaimHandler(ctx, {
+      taskId: 'cc2' as TaskId,
+      agent: 'forge',
+      fromStatuses: 'ready,planning',
+      toStatus: 'in_progress',
+      systemToken: 'test-system-token',
+    })
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('not in allowed list')
+  })
+
+  it('casClaim should fail when task not found', async () => {
+    const ctx = mockCtxWithToken([])
+    const result = await casClaimHandler(ctx, {
+      taskId: 'missing' as TaskId,
+      agent: 'forge',
+      fromStatuses: 'ready',
+      toStatus: 'in_progress',
+      systemToken: 'test-system-token',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('casClaim should fail when another agent holds lease', async () => {
+    const task = makeTask({
+      _id: 'cc3' as TaskId,
+      status: 'ready',
+      leaseOwner: 'other',
+      leaseExpiresAt: Date.now() + 99999,
+    } as any)
+    const ctx = mockCtxWithToken([task])
+    const result = await casClaimHandler(ctx, {
+      taskId: 'cc3' as TaskId,
+      agent: 'forge',
+      fromStatuses: 'ready',
+      toStatus: 'in_progress',
+      systemToken: 'test-system-token',
+    })
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('Another agent')
+  })
+
+  it('sanitizeTaskTextFields should require valid token', async () => {
+    const ctx = mockCtxWithToken([])
+    await expect(sanitizeTaskTextFieldsHandler(ctx, {
+      systemToken: 'wrong-token',
+    })).rejects.toThrow('Authentication failed')
+  })
+
+  it('sanitizeTaskTextFields should scan and update dirty tasks', async () => {
+    const task = makeTask({ _id: 'stf1' as TaskId, title: 'clean\x00dirty' })
+    const ctx = mockCtxWithToken([task])
+    const result = await sanitizeTaskTextFieldsHandler(ctx, {
+      systemToken: 'test-system-token',
+    })
+    expect(result.scanned).toBe(1)
+    expect(result.updated).toBe(1)
+  })
+
+  it('sanitizeTaskTextFields should not update clean tasks', async () => {
+    const task = makeTask({ _id: 'stf2' as TaskId, title: 'clean' })
+    const ctx = mockCtxWithToken([task])
+    const result = await sanitizeTaskTextFieldsHandler(ctx, {
+      systemToken: 'test-system-token',
+    })
+    expect(result.scanned).toBe(1)
+    expect(result.updated).toBe(0)
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// Query functions (agent queries)
+// ──────────────────────────────────────────────────────────
+describe('Query functions', () => {
+  it('getTask should return task by ID', async () => {
+    const task = makeTask({ _id: 'qt1' as TaskId, title: 'Found' })
+    const ctx = mockCtx([task])
+    const result = await getTaskHandler(ctx, { taskId: 'qt1' as TaskId })
+    expect(result?.title).toBe('Found')
+  })
+
+  it('getTask should return null for missing ID', async () => {
+    const ctx = mockCtx([])
+    const result = await getTaskHandler(ctx, { taskId: 'missing' as TaskId })
+    expect(result).toBeNull()
+  })
+
+  it('getBoard should group tasks by normalized status', async () => {
+    const tasks = [
+      makeTask({ _id: '1' as TaskId, status: 'planning' }),
+      makeTask({ _id: '2' as TaskId, status: 'in_progress' }),
+      makeTask({ _id: '3' as TaskId, status: 'done' }),
+    ]
+    const ctx = mockCtx(tasks)
+    const result = await getBoardHandler(ctx, {})
+    expect(result.planning).toHaveLength(1)
+    expect(result.in_progress).toHaveLength(1)
+    expect(result.done).toHaveLength(1)
+  })
+
+  it('getBoard should normalize legacy statuses', async () => {
+    const tasks = [
+      makeTask({ _id: '1' as TaskId, status: 'pending' }),
+      makeTask({ _id: '2' as TaskId, status: 'active' }),
+    ]
+    const ctx = mockCtx(tasks)
+    const result = await getBoardHandler(ctx, {})
+    expect(result.ready).toHaveLength(1)
+    expect(result.in_progress).toHaveLength(1)
+  })
+
+  it('listTasks should return all tasks by default', async () => {
+    const tasks = [
+      makeTask({ _id: '1' as TaskId }),
+      makeTask({ _id: '2' as TaskId }),
+    ]
+    const ctx = mockCtx(tasks)
+    const result = await listTasksHandler(ctx, {})
+    expect(result).toHaveLength(2)
+  })
+
+  it('getWorkloadByAgentStatus should return entries', async () => {
+    const tasks = [
+      makeTask({ _id: '1' as TaskId, assignedAgent: 'forge', status: 'in_progress' }),
+    ]
+    const ctx = mockCtx(tasks)
+    const result = await getWorkloadByAgentStatusHandler(ctx, {})
+    expect(result.length).toBeGreaterThan(0)
+    expect(result[0].agent).toBe('forge')
+  })
+
+  it('getLease should return lease info', async () => {
+    const task = makeTask({ _id: 'gl1' as TaskId, leaseOwner: 'forge', leaseExpiresAt: 12345, version: 3 } as any)
+    const ctx = mockCtx([task])
+    const result = await getLeaseHandler(ctx, { taskId: 'gl1' as TaskId })
+    expect(result?.leaseOwner).toBe('forge')
+    expect(result?.version).toBe(3)
+  })
+
+  it('getLease should return null for missing task', async () => {
+    const ctx = mockCtx([])
+    const result = await getLeaseHandler(ctx, { taskId: 'missing' as TaskId })
+    expect(result).toBeNull()
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// Pure function exports
+// ──────────────────────────────────────────────────────────
+describe('Pure function exports', () => {
+  it('normalizeStatus should map pending to ready', () => {
+    expect(taskModule.normalizeStatus('pending')).toBe('ready')
+  })
+
+  it('normalizeStatus should map active to in_progress', () => {
+    expect(taskModule.normalizeStatus('active')).toBe('in_progress')
+  })
+
+  it('normalizeStatus should pass through normal statuses', () => {
+    expect(taskModule.normalizeStatus('done')).toBe('done')
+  })
+
+  it('isValidTransition should validate correctly', () => {
+    expect(taskModule.isValidTransition('planning', 'ready')).toBe(true)
+    expect(taskModule.isValidTransition('done', 'ready')).toBe(false)
+    expect(taskModule.isValidTransition('unknown_status', 'anything')).toBe(true)
+  })
+
+  it('VALID_TRANSITIONS should have terminal states with empty arrays', () => {
+    expect(taskModule.VALID_TRANSITIONS['done']).toEqual([])
+    expect(taskModule.VALID_TRANSITIONS['cancelled']).toEqual([])
+  })
+
+  it('aggregateWorkloadEntries should filter by project', () => {
+    const tasks = [
+      { assignedAgent: 'forge', status: 'in_progress', project: 'a' },
+      { assignedAgent: 'forge', status: 'ready', project: 'b' },
+    ]
+    const result = taskModule.aggregateWorkloadEntries(tasks, { project: 'a' })
+    expect(result).toHaveLength(1)
+    expect(result[0].agent).toBe('forge')
+  })
+
+  it('aggregateWorkloadEntries should filter by priority', () => {
+    const tasks = [
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
+      { assignedAgent: 'forge', status: 'ready', priority: 'low' },
+    ]
+    const result = taskModule.aggregateWorkloadEntries(tasks, { priority: 'high' })
+    expect(result).toHaveLength(1)
   })
 })
