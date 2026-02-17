@@ -1,3 +1,4 @@
+import type React from 'react'
 import { cn } from '../lib/utils'
 
 export type WorkloadData = Record<
@@ -7,6 +8,7 @@ export type WorkloadData = Record<
 
 export interface WorkloadChartProps {
   data: WorkloadData
+  onAgentClick?: (agent: string) => void
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -21,7 +23,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 const OVERLOAD_THRESHOLD = 5
 
-export function WorkloadChart({ data }: WorkloadChartProps) {
+export function WorkloadChart({ data, onAgentClick }: WorkloadChartProps) {
   const agents = Object.entries(data)
     .map(([name, entry]) => ({ name, ...entry }))
     .sort((a, b) => b.total - a.total)
@@ -48,7 +50,23 @@ export function WorkloadChart({ data }: WorkloadChartProps) {
                 key={agent.name}
                 data-testid={`workload-bar-${agent.name}`}
                 aria-label={`${agent.name}: ${agent.total} tasks`}
-                className="flex items-center gap-3"
+                className={cn(
+                  'flex items-center gap-3',
+                  onAgentClick && 'cursor-pointer hover:bg-muted/50 rounded-md px-1 -mx-1',
+                )}
+                {...(onAgentClick
+                  ? {
+                      role: 'button',
+                      tabIndex: 0,
+                      onClick: () => onAgentClick(agent.name),
+                      onKeyDown: (e: React.KeyboardEvent) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          onAgentClick(agent.name)
+                        }
+                      },
+                    }
+                  : {})}
               >
                 <span className="text-sm font-medium text-foreground w-24 truncate">
                   {agent.name}
@@ -86,7 +104,8 @@ export function WorkloadChart({ data }: WorkloadChartProps) {
                 {isOverloaded && (
                   <span
                     data-testid={`workload-overload-${agent.name}`}
-                    className="text-xs font-semibold text-red-500"
+                    aria-label={`${agent.name} is overloaded`}
+                    className="text-xs font-semibold text-white bg-red-500 rounded-full px-2 py-0.5"
                   >
                     Overloaded
                   </span>
