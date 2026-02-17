@@ -66,6 +66,9 @@ export const api = {
     create: {} as any,
     update: {} as any,
   },
+  activityLog: {
+    getRecentActivity: {} as any,
+  },
 };
 EOF
 fi

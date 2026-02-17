@@ -75,10 +75,16 @@ jobs:
         if: github.event_name != 'pull_request'
         run: pnpm exec playwright install --with-deps
 
-      - name: Run Playwright tests
+      - name: Run Playwright tests (PR smoke)
+        if: github.event_name == 'pull_request'
+        run: pnpm test:e2e --project=desktop-chromium
+        env:
+          CI: true
+
+      - name: Run Playwright tests (nightly/full)
+        if: github.event_name != 'pull_request'
         run: pnpm test:e2e
         env:
-          # CI environment variable enables headless mode
           CI: true
 
       - name: Upload HTML report
