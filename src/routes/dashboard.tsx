@@ -3,7 +3,9 @@ import { useQuery } from 'convex/react'
 import { convex } from '../lib/convex'
 import { api } from '../../convex/_generated/api'
 import { getPriorityColor } from '../lib/utils'
-import { Suspense, useEffect, useRef } from 'react'
+import { Suspense, useEffect, useMemo, useRef } from 'react'
+import { useFilters } from '../hooks/useFilters'
+import { FilterBar } from '../components/FilterBar'
 
 export const Route = createFileRoute('/dashboard')({
   loader: async () => {
@@ -110,6 +112,44 @@ function DashboardLiveComponent({ initialData }: { initialData: any }) {
 
 function DashboardBoard({ tasks }: { tasks: any }) {
   const statusOrder = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
+  const { filters, setFilter, clearFilters, hasActiveFilters } = useFilters()
+
+  // Collect unique projects and agents from all tasks for dropdown options
+  const { projects, agents } = useMemo(() => {
+    const projectSet = new Set<string>()
+    const agentSet = new Set<string>()
+    for (const status of statusOrder) {
+      for (const task of tasks[status] || []) {
+        if (task.project) projectSet.add(task.project)
+        if (task.assignedAgent) agentSet.add(task.assignedAgent)
+      }
+    }
+    return {
+      projects: Array.from(projectSet).sort(),
+      agents: Array.from(agentSet).sort(),
+    }
+  }, [tasks])
+
+  // Apply client-side filters to the board data
+  const filteredTasks = useMemo(() => {
+    const result: Record<string, any[]> = {}
+    for (const status of statusOrder) {
+      result[status] = (tasks[status] || []).filter((task: any) => {
+        if (filters.project && task.project !== filters.project) return false
+        if (filters.agent && task.assignedAgent !== filters.agent) return false
+        if (filters.priority && task.priority !== filters.priority) return false
+        if (filters.search) {
+          const q = filters.search.toLowerCase()
+          const inTitle = task.title?.toLowerCase().includes(q)
+          const inAgent = task.assignedAgent?.toLowerCase().includes(q)
+          const inProject = task.project?.toLowerCase().includes(q)
+          if (!inTitle && !inAgent && !inProject) return false
+        }
+        return true
+      })
+    }
+    return result
+  }, [tasks, filters])
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -117,17 +157,26 @@ function DashboardBoard({ tasks }: { tasks: any }) {
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-4xl font-bold text-foreground">Task Dashboard</h1>
           <div className="text-sm text-muted-foreground">
-            <span 
+            <span
               data-testid="live-indicator"
               className="inline-block w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"
             ></span>
             Live
           </div>
         </div>
-        
+
+        <FilterBar
+          filters={filters}
+          onFilterChange={setFilter}
+          onClear={clearFilters}
+          hasActiveFilters={hasActiveFilters}
+          projects={projects}
+          agents={agents}
+        />
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {statusOrder.map((status) => {
-            const statusTasks = tasks[status] || []
+            const statusTasks = filteredTasks[status] || []
             const count = statusTasks.length
             
             return (
