@@ -1,79 +1,72 @@
 /**
- * Sprint 4: Activity Log Component Tests
+ * Sprint 4: Activity Log Behavior Tests
  *
- * Smoke-level unit test stubs for activity log integration points.
- * Tests validate the activity log data structures and action types
- * that the Activity Log component will consume.
+ * Tests exercise the actual logActivity mutation handler and
+ * getTaskActivity / getRecentActivity query handlers from
+ * convex/activityLog.ts, verifying that activity entries are
+ * generated with correct timestamps, actions, and metadata.
  */
 
 import { describe, it, expect } from 'vitest'
-import { createMockTask } from '../../test/fixtures'
+import * as activityModule from '../../../convex/activityLog'
 
-/** Activity log action types matching convex/activityLog.ts */
-const ACTIVITY_ACTIONS = [
-  'created',
-  'claimed',
-  'started',
-  'completed',
-  'updated',
-  'blocked',
-  'handed_off',
-] as const
+type HandlerExtractor = { handler: (...args: any[]) => Promise<any> }
+const logActivityHandler = (activityModule.logActivity as unknown as HandlerExtractor).handler
+const getTaskActivityHandler = (activityModule.getTaskActivity as unknown as HandlerExtractor).handler
+const getRecentActivityHandler = (activityModule.getRecentActivity as unknown as HandlerExtractor).handler
 
-type ActivityAction = (typeof ACTIVITY_ACTIONS)[number]
-
-interface MockActivityEntry {
-  taskId: string
-  action: ActivityAction
-  performedBy: string
-  timestamp: number
-  metadata?: {
-    fromStatus?: string
-    toStatus?: string
-    notes?: string
-  }
-}
-
-function createMockActivityEntry(
-  overrides: Partial<MockActivityEntry> = {}
-): MockActivityEntry {
+// In-memory store simulating Convex DB for activityLog table
+function makeMutableCtx() {
+  const logs: any[] = []
+  let nextId = 1
   return {
-    taskId: 'j57mock123',
-    action: 'created',
-    performedBy: 'forge',
-    timestamp: Date.now(),
-    metadata: undefined,
-    ...overrides,
+    ctx: {
+      db: {
+        query: (_table: string) => ({
+          order: (_dir: string) => ({
+            take: async (n: number) => logs.slice(0, n),
+            collect: async () => logs,
+          }),
+        }),
+        insert: async (_table: string, doc: Record<string, unknown>) => {
+          const id = `log-${nextId++}`
+          logs.push({ _id: id, ...doc })
+          return id
+        },
+      },
+    },
+    logs,
   }
 }
 
-describe('Activity Log - Data Layer', () => {
-  it('should define all valid activity action types', () => {
-    expect(ACTIVITY_ACTIONS).toHaveLength(7)
-    expect(ACTIVITY_ACTIONS).toContain('created')
-    expect(ACTIVITY_ACTIONS).toContain('claimed')
-    expect(ACTIVITY_ACTIONS).toContain('started')
-    expect(ACTIVITY_ACTIONS).toContain('completed')
-    expect(ACTIVITY_ACTIONS).toContain('updated')
-    expect(ACTIVITY_ACTIONS).toContain('blocked')
-    expect(ACTIVITY_ACTIONS).toContain('handed_off')
-  })
+describe('Activity Log - logActivity mutation handler', () => {
+  it('should create an activity entry with timestamp', async () => {
+    const { ctx, logs } = makeMutableCtx()
+    const before = Date.now()
 
-  it('should create activity entry with required fields', () => {
-    const entry = createMockActivityEntry({
-      taskId: 'j57task456',
-      action: 'started',
-      performedBy: 'sentinel',
+    await logActivityHandler(ctx, {
+      taskId: 'task-1',
+      actor: 'forge',
+      actorType: 'agent',
+      action: 'created',
     })
 
-    expect(entry.taskId).toBe('j57task456')
-    expect(entry.action).toBe('started')
-    expect(entry.performedBy).toBe('sentinel')
-    expect(entry.timestamp).toBeGreaterThan(0)
+    expect(logs).toHaveLength(1)
+    expect(logs[0].taskId).toBe('task-1')
+    expect(logs[0].actor).toBe('forge')
+    expect(logs[0].actorType).toBe('agent')
+    expect(logs[0].action).toBe('created')
+    expect(logs[0].timestamp).toBeGreaterThanOrEqual(before)
+    expect(logs[0].timestamp).toBeLessThanOrEqual(Date.now())
   })
 
-  it('should support status transition metadata', () => {
-    const entry = createMockActivityEntry({
+  it('should store status transition metadata', async () => {
+    const { ctx, logs } = makeMutableCtx()
+
+    await logActivityHandler(ctx, {
+      taskId: 'task-1',
+      actor: 'forge',
+      actorType: 'agent',
       action: 'updated',
       metadata: {
         fromStatus: 'planning',
@@ -82,102 +75,190 @@ describe('Activity Log - Data Layer', () => {
       },
     })
 
-    expect(entry.metadata).toBeDefined()
-    expect(entry.metadata?.fromStatus).toBe('planning')
-    expect(entry.metadata?.toStatus).toBe('in_progress')
-    expect(entry.metadata?.notes).toBe('Started implementation')
+    expect(logs[0].metadata).toEqual({
+      fromStatus: 'planning',
+      toStatus: 'in_progress',
+      notes: 'Started implementation',
+    })
   })
 
-  it('should create entries without optional metadata', () => {
-    const entry = createMockActivityEntry({ action: 'created' })
-    expect(entry.metadata).toBeUndefined()
-  })
+  it('should store entries without optional metadata', async () => {
+    const { ctx, logs } = makeMutableCtx()
 
-  it('should associate activity entries with tasks', () => {
-    const task = createMockTask({ title: 'Tracked task' })
-    const entry = createMockActivityEntry({
-      taskId: task._id,
-      action: 'created',
+    await logActivityHandler(ctx, {
+      taskId: 'task-1',
+      actor: 'sentinel',
+      actorType: 'agent',
+      action: 'claimed',
     })
 
-    expect(entry.taskId).toBe(task._id)
+    expect(logs[0].metadata).toBeUndefined()
+    expect(logs[0].action).toBe('claimed')
+  })
+
+  it('should return the inserted entry ID', async () => {
+    const { ctx } = makeMutableCtx()
+
+    const result = await logActivityHandler(ctx, {
+      taskId: 'task-1',
+      actor: 'forge',
+      actorType: 'agent',
+      action: 'started',
+    })
+
+    expect(result).toBeDefined()
+    expect(typeof result).toBe('string')
+  })
+
+  it('should record all 7 action types', async () => {
+    const { ctx, logs } = makeMutableCtx()
+    const actions = ['created', 'claimed', 'started', 'completed', 'updated', 'blocked', 'handed_off']
+
+    for (const action of actions) {
+      await logActivityHandler(ctx, {
+        taskId: 'task-1',
+        actor: 'forge',
+        actorType: 'agent',
+        action,
+      })
+    }
+
+    expect(logs).toHaveLength(7)
+    const recordedActions = logs.map((l: any) => l.action)
+    expect(recordedActions).toEqual(actions)
+  })
+
+  it('should record different actor types', async () => {
+    const { ctx, logs } = makeMutableCtx()
+
+    await logActivityHandler(ctx, {
+      taskId: 'task-1', actor: 'forge', actorType: 'agent', action: 'created',
+    })
+    await logActivityHandler(ctx, {
+      taskId: 'task-1', actor: 'admin', actorType: 'user', action: 'updated',
+    })
+    await logActivityHandler(ctx, {
+      taskId: 'task-1', actor: 'scheduler', actorType: 'system', action: 'started',
+    })
+
+    expect(logs[0].actorType).toBe('agent')
+    expect(logs[1].actorType).toBe('user')
+    expect(logs[2].actorType).toBe('system')
   })
 })
 
-describe('Activity Log - Timeline Integration Stubs', () => {
-  it('should order activity entries by timestamp', () => {
-    const now = Date.now()
-    const entries = [
-      createMockActivityEntry({ action: 'created', timestamp: now - 3000 }),
-      createMockActivityEntry({ action: 'claimed', timestamp: now - 2000 }),
-      createMockActivityEntry({ action: 'started', timestamp: now - 1000 }),
-      createMockActivityEntry({ action: 'completed', timestamp: now }),
+describe('Activity Log - Task Lifecycle via logActivity', () => {
+  it('should build a complete lifecycle with correct chronological order', async () => {
+    const { ctx, logs } = makeMutableCtx()
+
+    // Simulate a full task lifecycle
+    const lifecycle = [
+      { action: 'created', actor: 'api', actorType: 'system' },
+      { action: 'claimed', actor: 'forge', actorType: 'agent' },
+      { action: 'started', actor: 'forge', actorType: 'agent', metadata: { fromStatus: 'ready', toStatus: 'in_progress' } },
+      { action: 'updated', actor: 'forge', actorType: 'agent', metadata: { fromStatus: 'in_progress', toStatus: 'in_review' } },
+      { action: 'completed', actor: 'sentinel', actorType: 'agent', metadata: { fromStatus: 'in_review', toStatus: 'done' } },
     ]
 
-    // Sort by timestamp ascending
-    const sorted = [...entries].sort((a, b) => a.timestamp - b.timestamp)
-    expect(sorted[0].action).toBe('created')
-    expect(sorted[1].action).toBe('claimed')
-    expect(sorted[2].action).toBe('started')
-    expect(sorted[3].action).toBe('completed')
-  })
-
-  it('should group activity entries by task', () => {
-    const entries = [
-      createMockActivityEntry({ taskId: 'task-a', action: 'created' }),
-      createMockActivityEntry({ taskId: 'task-a', action: 'started' }),
-      createMockActivityEntry({ taskId: 'task-b', action: 'created' }),
-    ]
-
-    const grouped: Record<string, MockActivityEntry[]> = {}
-    for (const entry of entries) {
-      if (!grouped[entry.taskId]) {
-        grouped[entry.taskId] = []
-      }
-      grouped[entry.taskId].push(entry)
+    for (const entry of lifecycle) {
+      await logActivityHandler(ctx, { taskId: 'task-lifecycle', ...entry })
     }
 
-    expect(grouped['task-a']).toHaveLength(2)
-    expect(grouped['task-b']).toHaveLength(1)
+    expect(logs).toHaveLength(5)
+
+    // All belong to the same task
+    expect(logs.every((l: any) => l.taskId === 'task-lifecycle')).toBe(true)
+
+    // Timestamps should be non-decreasing (all created within same tick or ascending)
+    for (let i = 1; i < logs.length; i++) {
+      expect(logs[i].timestamp).toBeGreaterThanOrEqual(logs[i - 1].timestamp)
+    }
+
+    // First and last actions should be lifecycle boundaries
+    expect(logs[0].action).toBe('created')
+    expect(logs[logs.length - 1].action).toBe('completed')
   })
 
-  it('should track complete task lifecycle via activity entries', () => {
-    const taskId = 'j57lifecycle'
-    const now = Date.now()
+  it('should track status transitions with from/to metadata', async () => {
+    const { ctx, logs } = makeMutableCtx()
 
-    const lifecycle: ActivityAction[] = [
-      'created',
-      'claimed',
-      'started',
-      'updated',
-      'completed',
+    const transitions = [
+      { from: 'planning', to: 'ready' },
+      { from: 'ready', to: 'in_progress' },
+      { from: 'in_progress', to: 'in_review' },
+      { from: 'in_review', to: 'done' },
     ]
 
-    const entries = lifecycle.map((action, i) =>
-      createMockActivityEntry({
-        taskId,
-        action,
-        timestamp: now + i * 1000,
+    for (const t of transitions) {
+      await logActivityHandler(ctx, {
+        taskId: 'task-1',
+        actor: 'forge',
+        actorType: 'agent',
+        action: 'updated',
+        metadata: { fromStatus: t.from, toStatus: t.to },
       })
-    )
-
-    expect(entries).toHaveLength(5)
-    expect(entries[0].action).toBe('created')
-    expect(entries[entries.length - 1].action).toBe('completed')
-    // All entries belong to the same task
-    expect(entries.every((e) => e.taskId === taskId)).toBe(true)
-  })
-
-  it('should validate recent activity query response shape', () => {
-    const recentActivity = {
-      entries: [
-        createMockActivityEntry({ action: 'completed' }),
-        createMockActivityEntry({ action: 'started' }),
-      ],
-      limit: 50,
     }
 
-    expect(recentActivity.entries).toHaveLength(2)
-    expect(recentActivity.limit).toBe(50)
+    expect(logs).toHaveLength(4)
+    // Each entry has matching from/to metadata
+    expect(logs[0].metadata.fromStatus).toBe('planning')
+    expect(logs[0].metadata.toStatus).toBe('ready')
+    expect(logs[3].metadata.fromStatus).toBe('in_review')
+    expect(logs[3].metadata.toStatus).toBe('done')
+
+    // Verify chain: each toStatus matches next fromStatus
+    for (let i = 0; i < logs.length - 1; i++) {
+      expect(logs[i].metadata.toStatus).toBe(logs[i + 1].metadata.fromStatus)
+    }
+  })
+})
+
+describe('Activity Log - Query handlers', () => {
+  it('getTaskActivity should filter entries by taskId', async () => {
+    const { ctx, logs } = makeMutableCtx()
+
+    // Insert entries for two different tasks
+    await logActivityHandler(ctx, {
+      taskId: 'task-a', actor: 'forge', actorType: 'agent', action: 'created',
+    })
+    await logActivityHandler(ctx, {
+      taskId: 'task-b', actor: 'sentinel', actorType: 'agent', action: 'created',
+    })
+    await logActivityHandler(ctx, {
+      taskId: 'task-a', actor: 'forge', actorType: 'agent', action: 'started',
+    })
+
+    const result = await getTaskActivityHandler(ctx, { taskId: 'task-a' })
+
+    expect(result).toHaveLength(2)
+    expect(result.every((l: any) => l.taskId === 'task-a')).toBe(true)
+  })
+
+  it('getRecentActivity should return entries up to the limit', async () => {
+    const { ctx } = makeMutableCtx()
+
+    for (let i = 0; i < 5; i++) {
+      await logActivityHandler(ctx, {
+        taskId: `task-${i}`, actor: 'forge', actorType: 'agent', action: 'created',
+      })
+    }
+
+    const result = await getRecentActivityHandler(ctx, { limit: 3 })
+    expect(result).toHaveLength(3)
+  })
+
+  it('getRecentActivity should default to limit 50', async () => {
+    const { ctx } = makeMutableCtx()
+
+    // Insert 2 entries; should return all since count < default limit
+    await logActivityHandler(ctx, {
+      taskId: 'task-1', actor: 'forge', actorType: 'agent', action: 'created',
+    })
+    await logActivityHandler(ctx, {
+      taskId: 'task-2', actor: 'sentinel', actorType: 'agent', action: 'started',
+    })
+
+    const result = await getRecentActivityHandler(ctx, {})
+    expect(result).toHaveLength(2)
   })
 })

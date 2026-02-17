@@ -1,82 +1,182 @@
 /**
- * Sprint 4: Drag-and-Drop Interaction Tests
+ * Sprint 4: Drag-and-Drop Behavior Tests
  *
- * Smoke-level unit test stubs for drag-and-drop integration points.
- * Tests validate the status transition logic and data structures
- * that drive drag-and-drop task movement between columns.
+ * Tests exercise actual status transition codepaths:
+ * - The update mutation handler for status changes
+ * - The getByStatus query handler for board state after transitions
+ * - The groupTasksByStatus utility for column rendering
  */
 
 import { describe, it, expect } from 'vitest'
-import { createMockTask, groupTasksByStatus } from '../../test/fixtures'
+import { groupTasksByStatus, createMockTask } from '../../test/fixtures'
 import type { TaskStatus } from '../../test/fixtures'
+import * as taskModule from '../../../convex/tasks'
 
-describe('Drag-and-Drop - Status Transitions', () => {
+type HandlerExtractor = { handler: (...args: any[]) => Promise<any> }
+const updateHandler = (taskModule.update as unknown as HandlerExtractor).handler
+const getByStatusHandler = (taskModule.getByStatus as unknown as HandlerExtractor).handler
+
+// In-memory task store for mutation tests
+function makeMutableCtx(tasks: any[]) {
+  const store = [...tasks]
+  return {
+    ctx: {
+      db: {
+        query: (_table: string) => ({
+          order: (_dir: string) => ({
+            take: async (n: number) => store.slice(0, n),
+          }),
+        }),
+        get: async (id: string) => store.find((t) => t._id === id) ?? null,
+        patch: async (id: string, fields: Record<string, unknown>) => {
+          const task = store.find((t) => t._id === id)
+          if (task) Object.assign(task, fields)
+        },
+      },
+    },
+    store,
+  }
+}
+
+function makeTask(overrides: Record<string, unknown> = {}) {
+  return {
+    _id: `j57${Math.random().toString(36).slice(2, 10)}`,
+    _creationTime: Date.now(),
+    title: 'Test Task',
+    status: 'planning',
+    priority: 'normal',
+    assignedAgent: 'forge',
+    project: 'agent-dashboard',
+    createdBy: 'test',
+    createdAt: Date.now(),
+    ...overrides,
+  }
+}
+
+describe('Drag-and-Drop - Status Transitions via update handler', () => {
   const validStatuses: TaskStatus[] = [
-    'planning',
-    'ready',
-    'in_progress',
-    'in_review',
-    'done',
-    'blocked',
+    'planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked',
   ]
 
-  it('should support moving a task between any two status columns', () => {
-    const task = createMockTask({ status: 'planning' })
+  it('should update task status from planning to in_progress', async () => {
+    const task = makeTask({ _id: 'task-1', status: 'planning' })
+    const { ctx, store } = makeMutableCtx([task])
 
-    // Simulate drag from planning to in_progress
-    const updatedTask = { ...task, status: 'in_progress' as TaskStatus }
-    expect(updatedTask.status).toBe('in_progress')
-    expect(updatedTask._id).toBe(task._id)
+    await updateHandler(ctx, { id: 'task-1', status: 'in_progress' })
+
+    expect(store[0].status).toBe('in_progress')
   })
 
-  it('should validate all six status columns as valid drop targets', () => {
-    expect(validStatuses).toHaveLength(6)
-    expect(validStatuses).toContain('planning')
-    expect(validStatuses).toContain('ready')
-    expect(validStatuses).toContain('in_progress')
-    expect(validStatuses).toContain('in_review')
-    expect(validStatuses).toContain('done')
-    expect(validStatuses).toContain('blocked')
-  })
+  it('should transition through all valid statuses', async () => {
+    const task = makeTask({ _id: 'task-1', status: 'planning' })
+    const { ctx, store } = makeMutableCtx([task])
 
-  it('should update task status when dropped in a new column', () => {
-    const task = createMockTask({ status: 'ready', title: 'Drag me' })
-
-    // Simulate status transition for each valid target
     for (const targetStatus of validStatuses) {
-      const moved = { ...task, status: targetStatus }
-      expect(moved.status).toBe(targetStatus)
-      expect(moved.title).toBe('Drag me')
+      await updateHandler(ctx, { id: 'task-1', status: targetStatus })
+      expect(store[0].status).toBe(targetStatus)
     }
   })
 
-  it('should preserve task data when changing status via drag', () => {
-    const task = createMockTask({
+  it('should preserve other task fields when only status changes (drag)', async () => {
+    const task = makeTask({
+      _id: 'task-1',
       status: 'planning',
       priority: 'high',
       assignedAgent: 'forge',
-      project: 'agent-dashboard',
-      title: 'Important task',
+      notes: 'Important notes',
     })
+    const { ctx, store } = makeMutableCtx([task])
 
-    // Only status should change on drag; other fields stay intact
-    const moved = { ...task, status: 'in_progress' as TaskStatus }
-    expect(moved.priority).toBe('high')
-    expect(moved.assignedAgent).toBe('forge')
-    expect(moved.project).toBe('agent-dashboard')
-    expect(moved.title).toBe('Important task')
+    await updateHandler(ctx, { id: 'task-1', status: 'done' })
+
+    expect(store[0].status).toBe('done')
+    expect(store[0].priority).toBe('high')
+    expect(store[0].assignedAgent).toBe('forge')
+    expect(store[0].notes).toBe('Important notes')
+    expect(store[0].title).toBe('Test Task')
+  })
+
+  it('should reject invalid status values', async () => {
+    const task = makeTask({ _id: 'task-1', status: 'planning' })
+    const { ctx } = makeMutableCtx([task])
+
+    await expect(
+      updateHandler(ctx, { id: 'task-1', status: 'invalid_status' })
+    ).rejects.toThrow(/Invalid status/)
+  })
+
+  it('should throw when updating a non-existent task', async () => {
+    const { ctx } = makeMutableCtx([])
+
+    await expect(
+      updateHandler(ctx, { id: 'nonexistent', status: 'done' })
+    ).rejects.toThrow(/Task not found/)
+  })
+
+  it('should return success on valid status update', async () => {
+    const task = makeTask({ _id: 'task-1', status: 'planning' })
+    const { ctx } = makeMutableCtx([task])
+
+    const result = await updateHandler(ctx, { id: 'task-1', status: 'in_review' })
+    expect(result).toEqual({ success: true })
   })
 })
 
-describe('Drag-and-Drop - Board State', () => {
-  it('should correctly group tasks by status for column rendering', () => {
+describe('Drag-and-Drop - Board State via getByStatus', () => {
+  it('should reflect task in new column after status update', async () => {
     const tasks = [
-      createMockTask({ status: 'planning', title: 'Task A' }),
-      createMockTask({ status: 'planning', title: 'Task B' }),
-      createMockTask({ status: 'in_progress', title: 'Task C' }),
-      createMockTask({ status: 'done', title: 'Task D' }),
+      makeTask({ _id: 'task-1', status: 'planning', title: 'Dragged Task' }),
+      makeTask({ _id: 'task-2', status: 'done', title: 'Stable Task' }),
     ]
+    const { ctx, store } = makeMutableCtx(tasks)
 
+    // Simulate drag: update status
+    await updateHandler(ctx, { id: 'task-1', status: 'in_progress' })
+
+    // Read board state — should reflect the mutation
+    const board = await getByStatusHandler(ctx, {})
+
+    expect(board.planning).toHaveLength(0)
+    expect(board.in_progress).toHaveLength(1)
+    expect(board.in_progress[0].title).toBe('Dragged Task')
+    expect(board.done).toHaveLength(1)
+  })
+
+  it('should handle moving task to an empty column', async () => {
+    const tasks = [
+      makeTask({ _id: 'task-1', status: 'planning', title: 'Only Task' }),
+    ]
+    const { ctx, store } = makeMutableCtx(tasks)
+
+    await updateHandler(ctx, { id: 'task-1', status: 'blocked' })
+    const board = await getByStatusHandler(ctx, {})
+
+    expect(board.planning).toHaveLength(0)
+    expect(board.blocked).toHaveLength(1)
+    expect(board.blocked[0].title).toBe('Only Task')
+  })
+
+  it('should always return all 6 status columns even when empty', async () => {
+    const ctx = makeMutableCtx([]).ctx
+    const board = await getByStatusHandler(ctx, {})
+
+    expect(Object.keys(board)).toEqual(
+      expect.arrayContaining(['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked'])
+    )
+    for (const col of Object.values(board)) {
+      expect(col).toHaveLength(0)
+    }
+  })
+})
+
+describe('Drag-and-Drop - groupTasksByStatus utility', () => {
+  it('should correctly partition tasks into status columns', () => {
+    const tasks = [
+      createMockTask({ status: 'planning', title: 'A' }),
+      createMockTask({ status: 'planning', title: 'B' }),
+      createMockTask({ status: 'in_progress', title: 'C' }),
+      createMockTask({ status: 'done', title: 'D' }),
+    ]
     const grouped = groupTasksByStatus(tasks)
 
     expect(grouped['planning']).toHaveLength(2)
@@ -87,40 +187,27 @@ describe('Drag-and-Drop - Board State', () => {
     expect(grouped['blocked']).toHaveLength(0)
   })
 
-  it('should remove task from source column and add to target on drop', () => {
+  it('should move task between columns after status change', () => {
     const tasks = [
-      createMockTask({ status: 'planning', title: 'Moving task' }),
-      createMockTask({ status: 'planning', title: 'Staying task' }),
-      createMockTask({ status: 'done', title: 'Done task' }),
+      createMockTask({ status: 'planning', title: 'Moving' }),
+      createMockTask({ status: 'planning', title: 'Staying' }),
+      createMockTask({ status: 'done', title: 'Finished' }),
     ]
 
-    const grouped = groupTasksByStatus(tasks)
-    expect(grouped['planning']).toHaveLength(2)
-    expect(grouped['in_progress']).toHaveLength(0)
+    const before = groupTasksByStatus(tasks)
+    expect(before['planning']).toHaveLength(2)
+    expect(before['in_progress']).toHaveLength(0)
 
-    // Simulate drag: move first planning task to in_progress
-    const movedTask = { ...tasks[0], status: 'in_progress' as TaskStatus }
-    const updatedTasks = [movedTask, tasks[1], tasks[2]]
-    const regrouped = groupTasksByStatus(updatedTasks)
+    // Simulate drag by changing status and regrouping
+    const updated = tasks.map((t) =>
+      t.title === 'Moving' ? { ...t, status: 'in_progress' as TaskStatus } : t
+    )
+    const after = groupTasksByStatus(updated)
 
-    expect(regrouped['planning']).toHaveLength(1)
-    expect(regrouped['in_progress']).toHaveLength(1)
-    expect(regrouped['in_progress'][0].title).toBe('Moving task')
-  })
-
-  it('should handle dropping a task into an empty column', () => {
-    const tasks = [
-      createMockTask({ status: 'planning', title: 'Only task' }),
-    ]
-
-    const grouped = groupTasksByStatus(tasks)
-    expect(grouped['blocked']).toHaveLength(0)
-
-    // Move into empty blocked column
-    const movedTask = { ...tasks[0], status: 'blocked' as TaskStatus }
-    const regrouped = groupTasksByStatus([movedTask])
-
-    expect(regrouped['planning']).toHaveLength(0)
-    expect(regrouped['blocked']).toHaveLength(1)
+    expect(after['planning']).toHaveLength(1)
+    expect(after['planning'][0].title).toBe('Staying')
+    expect(after['in_progress']).toHaveLength(1)
+    expect(after['in_progress'][0].title).toBe('Moving')
+    expect(after['done']).toHaveLength(1)
   })
 })

@@ -1,113 +1,188 @@
 /**
- * Sprint 4: Filter/Search Component Tests
+ * Sprint 4: Filter/Search Behavior Tests
  *
- * Smoke-level unit test stubs for filter and search integration points.
- * Tests validate the data layer (Convex listFiltered query) and
- * component rendering for filter UI elements.
+ * Tests exercise the actual listFiltered query handler from convex/tasks.ts,
+ * verifying that filtering by status, priority, project, and assignedAgent
+ * produces correct results, and that pagination works correctly.
  */
 
 import { describe, it, expect } from 'vitest'
-import { createMockTask, createMockTasksByStatus } from '../../test/fixtures'
-import { mockQueryData } from '../../test/mocks/convex'
+import * as taskModule from '../../../convex/tasks'
 
-describe('Filter/Search - Data Layer', () => {
-  it('should have listFiltered mock query data available', () => {
-    const filtered = mockQueryData['tasks:listFiltered']
-    expect(filtered).toBeDefined()
-    expect(filtered).toHaveProperty('tasks')
-    expect(filtered).toHaveProperty('total')
-    expect(filtered).toHaveProperty('hasMore')
+type HandlerExtractor = { handler: (...args: any[]) => Promise<any> }
+const listFilteredHandler = (taskModule.listFiltered as unknown as HandlerExtractor).handler
+
+// Mock Convex query context
+function mockCtx(tasks: any[]) {
+  return {
+    db: {
+      query: (_table: string) => ({
+        order: (_dir: string) => ({
+          take: async (n: number) => tasks.slice(0, n),
+        }),
+      }),
+    },
+  }
+}
+
+function makeTask(overrides: Record<string, unknown> = {}) {
+  return {
+    _id: `j57${Math.random().toString(36).slice(2, 10)}`,
+    _creationTime: Date.now(),
+    title: 'Test Task',
+    status: 'planning',
+    priority: 'normal',
+    assignedAgent: 'unassigned',
+    project: 'agent-dashboard',
+    createdBy: 'test',
+    createdAt: Date.now(),
+    ...overrides,
+  }
+}
+
+describe('Filter/Search - listFiltered query handler', () => {
+  const sampleTasks = [
+    makeTask({ title: 'Plan A', status: 'planning', priority: 'high', assignedAgent: 'forge', project: 'agent-dashboard' }),
+    makeTask({ title: 'Plan B', status: 'planning', priority: 'normal', assignedAgent: 'sentinel', project: 'options-trader' }),
+    makeTask({ title: 'Active C', status: 'in_progress', priority: 'urgent', assignedAgent: 'forge', project: 'agent-dashboard' }),
+    makeTask({ title: 'Review D', status: 'in_review', priority: 'high', assignedAgent: 'oracle', project: 'options-trader' }),
+    makeTask({ title: 'Done E', status: 'done', priority: 'low', assignedAgent: 'sentinel', project: 'agent-dashboard' }),
+    makeTask({ title: 'Blocked F', status: 'blocked', priority: 'normal', assignedAgent: 'friday', project: 'options-trader' }),
+  ]
+
+  it('should return all tasks when no filters are applied', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, {})
+
+    expect(result.tasks).toHaveLength(6)
+    expect(result.total).toBe(6)
+    expect(result.hasMore).toBe(false)
   })
 
-  it('should create mock tasks with filterable attributes', () => {
-    const task = createMockTask({
-      status: 'in_progress',
-      priority: 'high',
-      assignedAgent: 'forge',
+  it('should filter tasks by status', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, { status: 'planning' })
+
+    expect(result.tasks).toHaveLength(2)
+    expect(result.total).toBe(2)
+    expect(result.tasks.every((t: any) => t.status === 'planning')).toBe(true)
+  })
+
+  it('should filter tasks by priority', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, { priority: 'high' })
+
+    expect(result.tasks).toHaveLength(2)
+    expect(result.tasks.every((t: any) => t.priority === 'high')).toBe(true)
+    // Verify the specific tasks matched
+    const titles = result.tasks.map((t: any) => t.title).sort()
+    expect(titles).toEqual(['Plan A', 'Review D'])
+  })
+
+  it('should filter tasks by assignedAgent', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, { assignedAgent: 'forge' })
+
+    expect(result.tasks).toHaveLength(2)
+    expect(result.tasks.every((t: any) => t.assignedAgent === 'forge')).toBe(true)
+  })
+
+  it('should filter tasks by project', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, { project: 'options-trader' })
+
+    expect(result.tasks).toHaveLength(3)
+    expect(result.tasks.every((t: any) => t.project === 'options-trader')).toBe(true)
+  })
+
+  it('should combine multiple filters (status + priority)', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, { status: 'planning', priority: 'high' })
+
+    expect(result.tasks).toHaveLength(1)
+    expect(result.tasks[0].title).toBe('Plan A')
+    expect(result.tasks[0].status).toBe('planning')
+    expect(result.tasks[0].priority).toBe('high')
+  })
+
+  it('should combine multiple filters (agent + project)', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, {
+      assignedAgent: 'sentinel',
       project: 'agent-dashboard',
     })
 
-    expect(task.status).toBe('in_progress')
-    expect(task.priority).toBe('high')
-    expect(task.assignedAgent).toBe('forge')
-    expect(task.project).toBe('agent-dashboard')
+    expect(result.tasks).toHaveLength(1)
+    expect(result.tasks[0].title).toBe('Done E')
   })
 
-  it('should create tasks across all statuses for filter testing', () => {
-    const tasks = createMockTasksByStatus(2)
+  it('should return empty results when no tasks match filters', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, { status: 'cancelled' })
 
-    // Should have 2 tasks per status × 6 statuses = 12 tasks
-    expect(tasks).toHaveLength(12)
-
-    // Verify we have tasks in each status for filtering
-    const statuses = new Set(tasks.map((t) => t.status))
-    expect(statuses.size).toBe(6)
-    expect(statuses.has('planning')).toBe(true)
-    expect(statuses.has('in_progress')).toBe(true)
-    expect(statuses.has('done')).toBe(true)
+    expect(result.tasks).toHaveLength(0)
+    expect(result.total).toBe(0)
+    expect(result.hasMore).toBe(false)
   })
 
-  it('should support priority-based filtering via task fixtures', () => {
-    const tasks = createMockTasksByStatus(2)
-    const highPriority = tasks.filter((t) => t.priority === 'high')
-    const normalPriority = tasks.filter((t) => t.priority === 'normal')
+  it('should apply pagination with limit', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, { limit: 2 })
 
-    expect(highPriority.length).toBeGreaterThan(0)
-    expect(normalPriority.length).toBeGreaterThan(0)
+    expect(result.tasks).toHaveLength(2)
+    expect(result.total).toBe(6)
+    expect(result.limit).toBe(2)
+    expect(result.offset).toBe(0)
+    expect(result.hasMore).toBe(true)
   })
 
-  it('should support agent-based filtering via task fixtures', () => {
-    const tasks = createMockTasksByStatus(4)
-    const agents = new Set(tasks.map((t) => t.assignedAgent))
+  it('should apply pagination with offset', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const page1 = await listFilteredHandler(ctx, { limit: 3, offset: 0 })
+    const page2 = await listFilteredHandler(ctx, { limit: 3, offset: 3 })
 
-    // Factory cycles through forge, sentinel, oracle, friday
-    expect(agents.size).toBe(4)
-    expect(agents.has('forge')).toBe(true)
-    expect(agents.has('sentinel')).toBe(true)
-  })
-})
+    expect(page1.tasks).toHaveLength(3)
+    expect(page2.tasks).toHaveLength(3)
+    expect(page1.hasMore).toBe(true)
+    expect(page2.hasMore).toBe(false)
 
-describe('Filter/Search - Component Integration Stubs', () => {
-  it('should validate filter query response shape', () => {
-    const filterResponse = {
-      tasks: [createMockTask({ title: 'Filtered result' })],
-      total: 1,
-      limit: 50,
-      offset: 0,
-      hasMore: false,
-    }
-
-    expect(filterResponse.tasks).toHaveLength(1)
-    expect(filterResponse.tasks[0].title).toBe('Filtered result')
-    expect(filterResponse.total).toBe(1)
-    expect(filterResponse.hasMore).toBe(false)
+    // Pages should not overlap
+    const page1Ids = page1.tasks.map((t: any) => t._id)
+    const page2Ids = page2.tasks.map((t: any) => t._id)
+    const overlap = page1Ids.filter((id: string) => page2Ids.includes(id))
+    expect(overlap).toHaveLength(0)
   })
 
-  it('should validate empty filter results', () => {
-    const emptyResponse = {
-      tasks: [],
-      total: 0,
-      limit: 50,
-      offset: 0,
-      hasMore: false,
-    }
+  it('should paginate filtered results correctly', async () => {
+    // Create 5 planning tasks to test pagination on filtered subset
+    const planningTasks = Array.from({ length: 5 }, (_, i) =>
+      makeTask({ title: `Plan ${i}`, status: 'planning' })
+    )
+    const mixed = [...planningTasks, makeTask({ status: 'done' })]
+    const ctx = mockCtx(mixed)
 
-    expect(emptyResponse.tasks).toHaveLength(0)
-    expect(emptyResponse.total).toBe(0)
+    const result = await listFilteredHandler(ctx, { status: 'planning', limit: 2, offset: 0 })
+
+    expect(result.tasks).toHaveLength(2)
+    expect(result.total).toBe(5)
+    expect(result.hasMore).toBe(true)
+    expect(result.tasks.every((t: any) => t.status === 'planning')).toBe(true)
   })
 
-  it('should validate paginated filter response', () => {
-    const tasks = createMockTasksByStatus(1)
-    const paginatedResponse = {
-      tasks: tasks.slice(0, 3),
-      total: tasks.length,
-      limit: 3,
-      offset: 0,
-      hasMore: true,
-    }
+  it('should use default limit of 50 and offset of 0', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, {})
 
-    expect(paginatedResponse.tasks).toHaveLength(3)
-    expect(paginatedResponse.total).toBe(6)
-    expect(paginatedResponse.hasMore).toBe(true)
+    expect(result.limit).toBe(50)
+    expect(result.offset).toBe(0)
+  })
+
+  it('should handle empty database', async () => {
+    const ctx = mockCtx([])
+    const result = await listFilteredHandler(ctx, {})
+
+    expect(result.tasks).toHaveLength(0)
+    expect(result.total).toBe(0)
+    expect(result.hasMore).toBe(false)
   })
 })

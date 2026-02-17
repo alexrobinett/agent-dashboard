@@ -3,11 +3,11 @@ import { DashboardPage } from '../pages/DashboardPage'
 
 /**
  * Sprint 4 Validation Tests
- * Smoke-level E2E tests for Advanced Features pipeline integration points.
- *
- * Validates that the dashboard renders correctly and that Sprint 4
- * integration points (Filters/Search, Workload View, Drag-and-Drop,
- * Activity Log) are accessible without errors.
+ * E2E tests that validate actual dashboard page behavior:
+ * - Board columns render with correct headings and structure
+ * - Task cards display filterable attributes (status, agent, priority)
+ * - Count badges reflect actual task counts in each column
+ * - Page loads without errors and maintains structural integrity
  */
 
 test.describe('Sprint 4: Filters/Search Integration', () => {
@@ -19,32 +19,43 @@ test.describe('Sprint 4: Filters/Search Integration', () => {
     await dashboardPage.waitForLoad()
   })
 
-  test('should render dashboard with columns available for filtering', async () => {
-    // Validate the board renders with all status columns (filter targets)
-    const allColumnsVisible = await dashboardPage.areAllColumnsVisible()
-    expect(allColumnsVisible).toBe(true)
+  test('should render all six status columns as filter targets', async ({ page }) => {
+    const expectedStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
+
+    for (const status of expectedStatuses) {
+      const column = page.locator(`[data-testid="column-${status}"]`)
+      await expect(column).toBeVisible()
+    }
+
+    // Verify exactly 6 columns (no duplicates, no extras)
+    const columns = page.locator('[data-testid^="column-"]')
+    expect(await columns.count()).toBe(6)
   })
 
-  test('should display task cards with filterable attributes', async ({ page }) => {
-    // Verify task cards render with agent and priority info used for filtering
+  test('should display task cards with agent and priority info for filtering', async ({ page }) => {
     const taskCards = page.locator('[data-testid^="column-"] .bg-secondary')
     const cardCount = await taskCards.count()
 
-    // Board may have zero tasks in test environment; validate structure exists
     if (cardCount > 0) {
+      // Each card should have visible text content (title, agent, priority info)
       const firstCard = taskCards.first()
       await expect(firstCard).toBeVisible()
-      // Cards should contain agent name text (filterable attribute)
-      const cardText = await firstCard.textContent()
-      expect(cardText).toBeTruthy()
-    }
+      const text = await firstCard.textContent()
+      expect(text!.length).toBeGreaterThan(0)
 
-    // Columns themselves should always be present as filter targets
-    await expect(page.locator('[data-testid="column-planning"]')).toBeVisible()
-    await expect(page.locator('[data-testid="column-in_progress"]')).toBeVisible()
+      // Cards should have metadata section with agent/priority info
+      const metaSection = firstCard.locator('.text-xs')
+      await expect(metaSection).toBeVisible()
+
+      // Card should have a colored left border (priority indicator)
+      const borderStyle = await firstCard.evaluate((el) => {
+        return window.getComputedStyle(el).borderLeftStyle
+      })
+      expect(borderStyle).toBe('solid')
+    }
   })
 
-  test('should not produce console errors when page loads with filter-ready structure', async ({ page }) => {
+  test('should not produce console errors on page load', async ({ page }) => {
     const consoleErrors: string[] = []
     page.on('console', (msg) => {
       if (msg.type() === 'error') {
@@ -52,7 +63,6 @@ test.describe('Sprint 4: Filters/Search Integration', () => {
       }
     })
 
-    // Reload to capture all console output from scratch
     await page.reload()
     await dashboardPage.waitForLoad()
 
@@ -69,35 +79,46 @@ test.describe('Sprint 4: Workload View Integration', () => {
     await dashboardPage.waitForLoad()
   })
 
-  test('should render dashboard with task count badges for workload visibility', async ({ page }) => {
-    // Each column header shows a count badge — the foundation for workload view
-    const countBadges = page.locator('[data-testid^="column-"] .rounded-full')
-    const badgeCount = await countBadges.count()
+  test('should display count badges that reflect task counts per column', async ({ page }) => {
+    const expectedStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
 
-    // Should have exactly 6 count badges (one per status column)
-    expect(badgeCount).toBe(6)
-  })
+    for (const status of expectedStatuses) {
+      const column = page.locator(`[data-testid="column-${status}"]`)
+      const badge = column.locator('.rounded-full')
+      await expect(badge).toBeVisible()
 
-  test('should display agent assignments on task cards for workload aggregation', async ({ page }) => {
-    // Agent names on cards are the basis for workload-per-agent views
-    const taskCards = page.locator('[data-testid^="column-"] .bg-secondary')
-    const cardCount = await taskCards.count()
+      // Badge text should be a number (the task count)
+      const badgeText = await badge.textContent()
+      expect(badgeText!.trim()).toMatch(/^\d+$/)
 
-    if (cardCount > 0) {
-      // Verify first card has agent info in its metadata section
-      const firstCardMeta = taskCards.first().locator('.text-xs')
-      await expect(firstCardMeta).toBeVisible()
+      // Count in badge should match actual card count in column
+      const count = parseInt(badgeText!.trim(), 10)
+      const cards = column.locator('.bg-secondary')
+      expect(await cards.count()).toBe(count)
     }
   })
 
-  test('should render all six status columns needed for workload breakdown', async () => {
-    // Workload view breaks down by status; all columns must exist
+  test('should render all status column headings for workload breakdown', async () => {
     await expect(dashboardPage.planningHeading).toBeVisible()
     await expect(dashboardPage.readyHeading).toBeVisible()
     await expect(dashboardPage.inProgressHeading).toBeVisible()
     await expect(dashboardPage.inReviewHeading).toBeVisible()
     await expect(dashboardPage.doneHeading).toBeVisible()
     await expect(dashboardPage.blockedHeading).toBeVisible()
+  })
+
+  test('should display agent assignments on task cards', async ({ page }) => {
+    const taskCards = page.locator('[data-testid^="column-"] .bg-secondary')
+    const cardCount = await taskCards.count()
+
+    if (cardCount > 0) {
+      // Cards should have a metadata row with agent info
+      const firstCard = taskCards.first()
+      const metaRow = firstCard.locator('.text-xs')
+      await expect(metaRow).toBeVisible()
+      const metaText = await metaRow.textContent()
+      expect(metaText!.length).toBeGreaterThan(0)
+    }
   })
 })
 
@@ -110,44 +131,60 @@ test.describe('Sprint 4: Drag-and-Drop Integration', () => {
     await dashboardPage.waitForLoad()
   })
 
-  test('should render column containers as potential drop targets', async ({ page }) => {
-    // Each status column is a potential drop target for drag-and-drop
+  test('should render column containers with heading and task area structure', async ({ page }) => {
     const columns = page.locator('[data-testid^="column-"]')
-    const columnCount = await columns.count()
-    expect(columnCount).toBe(6)
+    expect(await columns.count()).toBe(6)
 
-    // Verify each column has a container structure
-    for (let i = 0; i < columnCount; i++) {
+    for (let i = 0; i < 6; i++) {
       const column = columns.nth(i)
       await expect(column).toBeVisible()
-      // Columns should have heading + task area
+
+      // Each column must have a heading
       const heading = column.locator('h2')
       await expect(heading).toBeVisible()
+      const headingText = await heading.textContent()
+      expect(headingText!.length).toBeGreaterThan(0)
+
+      // Each column must have a count badge
+      const badge = column.locator('.rounded-full')
+      await expect(badge).toBeVisible()
     }
   })
 
-  test('should render task cards as potential drag sources', async ({ page }) => {
-    // Task cards with cursor-pointer are the drag source candidates
+  test('should render task cards as interactive drag sources with bounding boxes', async ({ page }) => {
     const taskCards = page.locator('[data-testid^="column-"] .cursor-pointer')
     const cardCount = await taskCards.count()
 
     if (cardCount > 0) {
-      const firstCard = taskCards.first()
-      await expect(firstCard).toBeVisible()
-      // Card should be interactive (has cursor-pointer class in the markup)
-      const box = await firstCard.boundingBox()
-      expect(box).not.toBeNull()
+      // Each visible card should have a non-zero bounding box (draggable)
+      for (let i = 0; i < Math.min(cardCount, 3); i++) {
+        const card = taskCards.nth(i)
+        await expect(card).toBeVisible()
+        const box = await card.boundingBox()
+        expect(box).not.toBeNull()
+        expect(box!.width).toBeGreaterThan(0)
+        expect(box!.height).toBeGreaterThan(0)
+      }
     }
   })
 
-  test('should maintain board layout integrity for drag operations', async ({ page }) => {
-    // Verify the grid layout renders correctly — required for drag-and-drop positioning
+  test('should maintain grid layout with all columns positioned correctly', async ({ page }) => {
     const gridContainer = page.locator('.grid')
     await expect(gridContainer).toBeVisible()
 
-    // Grid should contain all 6 columns
     const columns = gridContainer.locator('[data-testid^="column-"]')
     expect(await columns.count()).toBe(6)
+
+    // Verify columns have non-zero dimensions and are within the grid
+    const gridBox = await gridContainer.boundingBox()
+    expect(gridBox).not.toBeNull()
+
+    for (let i = 0; i < 6; i++) {
+      const colBox = await columns.nth(i).boundingBox()
+      expect(colBox).not.toBeNull()
+      expect(colBox!.width).toBeGreaterThan(0)
+      expect(colBox!.height).toBeGreaterThan(0)
+    }
   })
 })
 
@@ -160,32 +197,36 @@ test.describe('Sprint 4: Activity Log Integration', () => {
     await dashboardPage.waitForLoad()
   })
 
-  test('should render tasks with data attributes suitable for activity tracking', async ({ page }) => {
-    // Task cards need identifiable structure to log activity (status changes, clicks)
-    const columns = page.locator('[data-testid^="column-"]')
-    const columnCount = await columns.count()
-    expect(columnCount).toBe(6)
-
-    // Verify each column has a data-testid for activity tracking
-    for (let i = 0; i < columnCount; i++) {
-      const testId = await columns.nth(i).getAttribute('data-testid')
-      expect(testId).toMatch(/^column-/)
-    }
-  })
-
-  test('should display live indicator confirming real-time activity subscription', async () => {
-    // Live indicator shows WebSocket subscription is active — needed for activity log streaming
+  test('should display live indicator confirming real-time subscription is active', async () => {
     const isLive = await dashboardPage.isLiveIndicatorVisible()
     expect(isLive).toBe(true)
   })
 
-  test('should load dashboard without errors ensuring activity log pipeline is stable', async ({ page }) => {
-    // No errors = activity log integration won't be blocked by rendering failures
+  test('should render columns with identifiable data-testid attributes for tracking', async ({ page }) => {
+    const expectedTestIds = [
+      'column-planning', 'column-ready', 'column-in_progress',
+      'column-in_review', 'column-done', 'column-blocked',
+    ]
+
+    for (const testId of expectedTestIds) {
+      const column = page.locator(`[data-testid="${testId}"]`)
+      await expect(column).toBeVisible()
+      const actualId = await column.getAttribute('data-testid')
+      expect(actualId).toBe(testId)
+    }
+  })
+
+  test('should load dashboard without errors ensuring pipeline stability', async ({ page }) => {
+    // No error alert should be visible
     const errorMessage = dashboardPage.errorMessage
     await expect(errorMessage).not.toBeVisible()
 
-    // Verify the page title loaded (full pipeline is functional)
+    // Main heading should render
     const heading = page.getByRole('heading', { name: /task dashboard/i })
     await expect(heading).toBeVisible()
+
+    // All 6 columns should be populated (structure intact)
+    const columns = page.locator('[data-testid^="column-"]')
+    expect(await columns.count()).toBe(6)
   })
 })

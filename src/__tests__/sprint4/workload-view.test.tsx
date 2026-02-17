@@ -1,121 +1,153 @@
 /**
- * Sprint 4: Workload View Component Tests
+ * Sprint 4: Workload View Behavior Tests
  *
- * Smoke-level unit test stubs for workload view integration points.
- * Tests validate the workload aggregation logic and data shapes
- * that the Workload View component will consume.
+ * Tests exercise the actual aggregateWorkload() pure function exported
+ * from convex/tasks.ts and the getWorkload query handler, verifying
+ * that task counts per agent are computed correctly from real data.
  */
 
 import { describe, it, expect } from 'vitest'
-import { createMockTask, createMockTasksByStatus } from '../../test/fixtures'
-import { mockQueryData } from '../../test/mocks/convex'
+import { aggregateWorkload } from '../../../convex/tasks'
+import * as taskModule from '../../../convex/tasks'
 
-describe('Workload View - Data Layer', () => {
-  it('should have getWorkload mock query data available', () => {
-    const workload = mockQueryData['tasks:getWorkload']
-    expect(workload).toBeDefined()
-  })
+type HandlerExtractor = { handler: (...args: any[]) => Promise<any> }
+const getWorkloadHandler = (taskModule.getWorkload as unknown as HandlerExtractor).handler
 
-  it('should aggregate tasks by agent for workload calculation', () => {
+function mockCtx(tasks: any[]) {
+  return {
+    db: {
+      query: (_table: string) => ({
+        order: (_dir: string) => ({
+          take: async (n: number) => tasks.slice(0, n),
+        }),
+      }),
+    },
+  }
+}
+
+describe('Workload View - aggregateWorkload() pure function', () => {
+  it('should count total tasks per agent', () => {
     const tasks = [
-      createMockTask({ assignedAgent: 'forge', status: 'in_progress' }),
-      createMockTask({ assignedAgent: 'forge', status: 'planning' }),
-      createMockTask({ assignedAgent: 'sentinel', status: 'in_review' }),
-      createMockTask({ assignedAgent: 'oracle', status: 'blocked' }),
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
+      { assignedAgent: 'forge', status: 'planning', priority: 'normal' },
+      { assignedAgent: 'forge', status: 'done', priority: 'low' },
+      { assignedAgent: 'sentinel', status: 'in_review', priority: 'high' },
     ]
+    const result = aggregateWorkload(tasks)
 
-    // Simulate workload aggregation
-    const workload: Record<string, { total: number; byStatus: Record<string, number> }> = {}
-    for (const task of tasks) {
-      const agent = task.assignedAgent ?? 'unassigned'
-      if (!workload[agent]) {
-        workload[agent] = { total: 0, byStatus: {} }
-      }
-      workload[agent].total++
-      workload[agent].byStatus[task.status] =
-        (workload[agent].byStatus[task.status] || 0) + 1
-    }
-
-    expect(workload['forge'].total).toBe(2)
-    expect(workload['forge'].byStatus['in_progress']).toBe(1)
-    expect(workload['forge'].byStatus['planning']).toBe(1)
-    expect(workload['sentinel'].total).toBe(1)
-    expect(workload['oracle'].total).toBe(1)
+    expect(result['forge'].total).toBe(3)
+    expect(result['sentinel'].total).toBe(1)
   })
 
-  it('should calculate workload by priority', () => {
+  it('should break down tasks by status per agent', () => {
     const tasks = [
-      createMockTask({ assignedAgent: 'forge', priority: 'urgent' }),
-      createMockTask({ assignedAgent: 'forge', priority: 'high' }),
-      createMockTask({ assignedAgent: 'forge', priority: 'normal' }),
-      createMockTask({ assignedAgent: 'sentinel', priority: 'urgent' }),
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'normal' },
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
+      { assignedAgent: 'forge', status: 'planning', priority: 'normal' },
+      { assignedAgent: 'sentinel', status: 'done', priority: 'normal' },
+      { assignedAgent: 'sentinel', status: 'in_progress', priority: 'high' },
     ]
+    const result = aggregateWorkload(tasks)
 
-    const workload: Record<string, { total: number; byPriority: Record<string, number> }> = {}
-    for (const task of tasks) {
-      const agent = task.assignedAgent ?? 'unassigned'
-      if (!workload[agent]) {
-        workload[agent] = { total: 0, byPriority: {} }
-      }
-      workload[agent].total++
-      workload[agent].byPriority[task.priority] =
-        (workload[agent].byPriority[task.priority] || 0) + 1
-    }
-
-    expect(workload['forge'].total).toBe(3)
-    expect(workload['forge'].byPriority['urgent']).toBe(1)
-    expect(workload['forge'].byPriority['high']).toBe(1)
-    expect(workload['sentinel'].byPriority['urgent']).toBe(1)
+    expect(result['forge'].byStatus['in_progress']).toBe(2)
+    expect(result['forge'].byStatus['planning']).toBe(1)
+    expect(result['forge'].byStatus['done']).toBeUndefined()
+    expect(result['sentinel'].byStatus['done']).toBe(1)
+    expect(result['sentinel'].byStatus['in_progress']).toBe(1)
   })
 
-  it('should handle agents with no tasks', () => {
-    const workload: Record<string, { total: number }> = {}
+  it('should break down tasks by priority per agent', () => {
+    const tasks = [
+      { assignedAgent: 'forge', status: 'planning', priority: 'urgent' },
+      { assignedAgent: 'forge', status: 'planning', priority: 'high' },
+      { assignedAgent: 'forge', status: 'planning', priority: 'high' },
+      { assignedAgent: 'forge', status: 'planning', priority: 'normal' },
+      { assignedAgent: 'oracle', status: 'planning', priority: 'low' },
+    ]
+    const result = aggregateWorkload(tasks)
 
-    // Empty workload should be an empty object
-    expect(Object.keys(workload)).toHaveLength(0)
+    expect(result['forge'].byPriority['urgent']).toBe(1)
+    expect(result['forge'].byPriority['high']).toBe(2)
+    expect(result['forge'].byPriority['normal']).toBe(1)
+    expect(result['forge'].byPriority['low']).toBeUndefined()
+    expect(result['oracle'].byPriority['low']).toBe(1)
+  })
+
+  it('should assign tasks without agent to "unassigned"', () => {
+    const tasks = [
+      { status: 'planning', priority: 'normal' },
+      { assignedAgent: undefined, status: 'ready', priority: 'high' },
+      { assignedAgent: '', status: 'blocked', priority: 'low' },
+      { assignedAgent: 'forge', status: 'done', priority: 'normal' },
+    ]
+    const result = aggregateWorkload(tasks)
+
+    // undefined and '' both fall through to 'unassigned'
+    expect(result['unassigned'].total).toBe(3)
+    expect(result['forge'].total).toBe(1)
+  })
+
+  it('should default missing status to "planning" and missing priority to "normal"', () => {
+    const tasks = [
+      { assignedAgent: 'forge' },
+      { assignedAgent: 'forge', status: undefined, priority: undefined },
+    ]
+    const result = aggregateWorkload(tasks)
+
+    expect(result['forge'].total).toBe(2)
+    expect(result['forge'].byStatus['planning']).toBe(2)
+    expect(result['forge'].byPriority['normal']).toBe(2)
+  })
+
+  it('should return empty object for empty task list', () => {
+    const result = aggregateWorkload([])
+    expect(Object.keys(result)).toHaveLength(0)
+  })
+
+  it('should handle many agents with varying task counts', () => {
+    const tasks = [
+      { assignedAgent: 'forge', status: 'planning', priority: 'normal' },
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
+      { assignedAgent: 'sentinel', status: 'in_review', priority: 'normal' },
+      { assignedAgent: 'oracle', status: 'done', priority: 'low' },
+      { assignedAgent: 'oracle', status: 'done', priority: 'normal' },
+      { assignedAgent: 'oracle', status: 'blocked', priority: 'urgent' },
+      { assignedAgent: 'friday', status: 'ready', priority: 'high' },
+    ]
+    const result = aggregateWorkload(tasks)
+
+    expect(Object.keys(result)).toHaveLength(4)
+    expect(result['forge'].total).toBe(2)
+    expect(result['sentinel'].total).toBe(1)
+    expect(result['oracle'].total).toBe(3)
+    expect(result['friday'].total).toBe(1)
+
+    // Cross-check: totals across all agents should match input count
+    const totalAcrossAgents = Object.values(result).reduce((sum, w) => sum + w.total, 0)
+    expect(totalAcrossAgents).toBe(7)
   })
 })
 
-describe('Workload View - Component Integration Stubs', () => {
-  it('should produce correct workload shape from task fixtures', () => {
-    const tasks = createMockTasksByStatus(2)
+describe('Workload View - getWorkload query handler', () => {
+  it('should compute workload from database tasks', async () => {
+    const tasks = [
+      { _id: 't1', assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
+      { _id: 't2', assignedAgent: 'forge', status: 'planning', priority: 'normal' },
+      { _id: 't3', assignedAgent: 'sentinel', status: 'done', priority: 'low' },
+    ]
+    const ctx = mockCtx(tasks)
+    const result = await getWorkloadHandler(ctx, {})
 
-    // Group by agent to validate workload shape
-    const agentGroups: Record<string, number> = {}
-    for (const task of tasks) {
-      const agent = task.assignedAgent ?? 'unassigned'
-      agentGroups[agent] = (agentGroups[agent] || 0) + 1
-    }
-
-    // createMockTasksByStatus cycles through 4 agents
-    expect(Object.keys(agentGroups).length).toBeGreaterThan(0)
-    expect(Object.keys(agentGroups).length).toBeLessThanOrEqual(4)
-
-    // Each agent should have at least one task
-    for (const count of Object.values(agentGroups)) {
-      expect(count).toBeGreaterThan(0)
-    }
+    expect(result['forge'].total).toBe(2)
+    expect(result['forge'].byStatus['in_progress']).toBe(1)
+    expect(result['forge'].byPriority['high']).toBe(1)
+    expect(result['sentinel'].total).toBe(1)
+    expect(result['sentinel'].byStatus['done']).toBe(1)
   })
 
-  it('should validate workload response shape for rendering', () => {
-    const workloadResponse: Record<
-      string,
-      { total: number; byStatus: Record<string, number>; byPriority: Record<string, number> }
-    > = {
-      forge: {
-        total: 3,
-        byStatus: { planning: 1, in_progress: 2 },
-        byPriority: { normal: 1, high: 2 },
-      },
-      sentinel: {
-        total: 1,
-        byStatus: { in_review: 1 },
-        byPriority: { normal: 1 },
-      },
-    }
-
-    expect(workloadResponse['forge'].total).toBe(3)
-    expect(workloadResponse['sentinel'].total).toBe(1)
-    expect(Object.keys(workloadResponse)).toHaveLength(2)
+  it('should return empty workload for empty database', async () => {
+    const ctx = mockCtx([])
+    const result = await getWorkloadHandler(ctx, {})
+    expect(Object.keys(result)).toHaveLength(0)
   })
 })
