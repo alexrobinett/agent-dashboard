@@ -2,8 +2,7 @@ import { defineSchema, defineTable } from 'convex/server'
 import { v } from 'convex/values'
 
 // Status and priority unions — shared source of truth
-// Keep in sync with ~/clawd/convex/schema.ts (agent backend)
-const taskStatus = v.union(
+export const taskStatus = v.union(
   v.literal('planning'),
   v.literal('ready'),
   v.literal('in_progress'),
@@ -16,7 +15,7 @@ const taskStatus = v.union(
   v.literal('active'),
 )
 
-const taskPriority = v.union(
+export const taskPriority = v.union(
   v.literal('low'),
   v.literal('normal'),
   v.literal('high'),
@@ -24,19 +23,6 @@ const taskPriority = v.union(
 )
 
 export default defineSchema({
-  // Leases for task ownership (prevents race conditions in dispatch)
-  leases: defineTable({
-    taskId: v.id('tasks'),
-    owner: v.string(),
-    expiresAt: v.number(),
-    version: v.number(),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index('by_task', ['taskId'])
-    .index('by_owner', ['owner'])
-    .index('by_expires', ['expiresAt']),
-
   tasks: defineTable({
     title: v.string(),
     description: v.optional(v.string()),
@@ -72,7 +58,7 @@ export default defineSchema({
     result: v.optional(v.string()),
     blockedReason: v.optional(v.string()),
 
-    // Lease management for atomic ownership handoff
+    // Legacy lease fields (kept for backward compat, no longer actively used)
     leaseOwner: v.optional(v.string()),
     leaseExpiresAt: v.optional(v.number()),
     handoffCount: v.optional(v.number()),
@@ -91,15 +77,17 @@ export default defineSchema({
     // Dispatch tracking
     attemptCount: v.optional(v.number()),
     lastHeartbeatAt: v.optional(v.number()),
+
+    // OpenClaw session tracking
+    runId: v.optional(v.string()),
+    sessionKey: v.optional(v.string()),
   })
     .index('by_status', ['status'])
     .index('by_agent', ['assignedAgent'])
     .index('by_created_at', ['createdAt'])
     .index('by_status_and_agent', ['status', 'assignedAgent'])
     .index('by_parent', ['parentTask'])
-    .index('by_project', ['project'])
-    .index('by_status_and_started', ['status', 'startedAt'])
-    .index('by_lease_expires', ['leaseExpiresAt']),
+    .index('by_project', ['project']),
 
   // User preferences for dashboard customization
   userPreferences: defineTable({
@@ -150,4 +138,16 @@ export default defineSchema({
   })
     .index('by_task', ['taskId'])
     .index('by_timestamp', ['timestamp']),
+
+  // Push tokens for iOS push notifications
+  pushTokens: defineTable({
+    userId: v.string(),
+    deviceId: v.string(),
+    token: v.string(),
+    platform: v.literal('ios'),
+    createdAt: v.number(),
+    lastUsedAt: v.number(),
+  })
+    .index('by_user', ['userId'])
+    .index('by_device', ['deviceId']),
 })
