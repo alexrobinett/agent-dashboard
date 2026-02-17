@@ -14,7 +14,11 @@ const config = defineConfig({
     },
   },
   plugins: [
-    devtools(),
+    devtools({
+      eventBusConfig: {
+        enabled: process.env.CI !== 'true',
+      },
+    }),
     nitro({ rollupConfig: { external: [/^@sentry\//] } }),
     // this is the plugin that enables path aliases
     viteTsConfigPaths({

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+cd "$ROOT_DIR"
+
+git config core.hooksPath .githooks
+chmod +x .githooks/pre-push scripts/pre-push-check.sh
+
+echo "Configured git hooks path: .githooks"
+echo "Pre-push hook installed."

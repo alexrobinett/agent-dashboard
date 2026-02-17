@@ -44,7 +44,13 @@ cd agent-dashboard
 pnpm install
 ```
 
-3. **Set up environment variables**
+3. **Install repo-managed git hooks**
+
+```bash
+pnpm hooks:install
+```
+
+4. **Set up environment variables**
 
 Copy the example environment file and fill in your credentials:
 
@@ -259,6 +265,9 @@ This project follows Test-Driven Development (TDD) practices. See [CONTRIBUTING.
 | `pnpm test` | Run tests once |
 | `pnpm test:watch` | Run tests in watch mode (TDD mode) |
 | `pnpm test:coverage` | Run tests with coverage report |
+| `pnpm test:e2e:smoke` | Run fast Playwright smoke checks used by pre-push |
+| `pnpm test:e2e` | Run full Playwright E2E suite (CI-required for merge) |
+| `pnpm hooks:install` | Install repo-managed git hooks |
 | `pnpm lint` | Check code quality with ESLint |
 | `pnpm lint:fix` | Auto-fix linting issues |
 | `pnpm typecheck` | Validate TypeScript types |
@@ -281,6 +290,22 @@ pnpm test:watch
 # Check coverage thresholds (80% minimum)
 pnpm test:coverage
 ```
+
+### Pre-push Quality Gate
+
+After running `pnpm hooks:install`, pushes run `.githooks/pre-push`, which executes:
+
+1. `pnpm typecheck`
+2. `pnpm test`
+3. `pnpm test:e2e:smoke` (fast deterministic Playwright subset)
+
+Emergency escape hatch:
+
+- Set `SKIP_E2E_SMOKE=1` only when absolutely necessary.
+- If used, you must document the reason in your PR description.
+- Avoid `git push --no-verify`; if it is used, include the reason in your PR description.
+
+Full `pnpm test:e2e` still runs in CI and remains required before merge.
 
 ### Quality Gates
 

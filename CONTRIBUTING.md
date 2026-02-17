@@ -66,14 +66,17 @@ npm run test:watch
 
 | Command | Description |
 |---------|-------------|
-| `npm run test` | Run tests once |
-| `npm run test:watch` | Run tests in watch mode (TDD mode) |
-| `npm run test:coverage` | Run tests with coverage report |
-| `npm run lint` | Check code quality with ESLint |
-| `npm run lint:fix` | Auto-fix linting issues |
-| `npm run typecheck` | Validate TypeScript types |
-| `npm run dev` | Start development server |
-| `npm run build` | Build for production |
+| `pnpm test` | Run tests once |
+| `pnpm test:watch` | Run tests in watch mode (TDD mode) |
+| `pnpm test:coverage` | Run tests with coverage report |
+| `pnpm test:e2e:smoke` | Run fast Playwright smoke checks used in pre-push |
+| `pnpm test:e2e` | Run full Playwright E2E suite (CI-required for merge) |
+| `pnpm lint` | Check code quality with ESLint |
+| `pnpm lint:fix` | Auto-fix linting issues |
+| `pnpm typecheck` | Validate TypeScript types |
+| `pnpm dev` | Start development server |
+| `pnpm build` | Build for production |
+| `pnpm hooks:install` | Install repo-managed git hooks |
 
 ## Test Organization
 
@@ -206,6 +209,28 @@ export function formatPriority(priority: string): string {
 ```
 
 Tests should still **pass** after refactoring.
+
+## Pre-push Gate & Bypass Policy
+
+Install hooks after cloning:
+
+```bash
+pnpm hooks:install
+```
+
+The pre-push hook runs:
+
+1. `pnpm typecheck`
+2. `pnpm test`
+3. `pnpm test:e2e:smoke`
+
+Emergency override:
+
+- `SKIP_E2E_SMOKE=1 git push` may be used only for urgent unblock situations.
+- Avoid `git push --no-verify`.
+- If either override is used, explicitly note it in the PR description with a reason.
+
+CI still runs the full E2E suite (`pnpm test:e2e`) and it remains required for merge.
 
 ## Pre-Commit Checklist
 
