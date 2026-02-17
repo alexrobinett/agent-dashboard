@@ -2,6 +2,7 @@ import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 import { ConvexProvider } from 'convex/react'
+import { Toaster } from 'sonner'
 
 import Header from '../components/Header'
 import { convexReactClient } from '../lib/convex'
@@ -54,6 +55,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
             ]}
           />
         </ConvexProvider>
+        <Toaster theme="dark" position="bottom-right" richColors />
         <Scripts />
       </body>
     </html>

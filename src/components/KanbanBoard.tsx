@@ -10,8 +10,7 @@ import {
   closestCorners,
 } from '@dnd-kit/core'
 import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core'
-import { useMutation } from 'convex/react'
-import { api } from '../../convex/_generated/api'
+import { useOptimisticTaskMove } from '../hooks/useOptimisticTaskMove'
 import { KanbanColumn } from './KanbanColumn'
 import { TaskCard } from './TaskCard'
 
@@ -23,7 +22,7 @@ interface KanbanBoardProps {
 
 export function KanbanBoard({ tasks }: KanbanBoardProps) {
   const [activeTask, setActiveTask] = useState<any | null>(null)
-  const updateTask = useMutation(api.tasks.update)
+  const { displayTasks, moveTask } = useOptimisticTaskMove(tasks)
 
   const pointerSensor = useSensor(PointerSensor, {
     activationConstraint: { distance: 8 },
@@ -34,10 +33,10 @@ export function KanbanBoard({ tasks }: KanbanBoardProps) {
   })
   const sensors = useSensors(pointerSensor, keyboardSensor, touchSensor)
 
-  // Build a lookup from task id to its current status
+  // Build a lookup from task id to its current status (using display tasks for accuracy)
   const taskStatusMap = new Map<string, string>()
   for (const status of STATUS_ORDER) {
-    for (const task of tasks[status] || []) {
+    for (const task of displayTasks[status] || []) {
       taskStatusMap.set(task._id, status)
     }
   }
@@ -64,9 +63,9 @@ export function KanbanBoard({ tasks }: KanbanBoardProps) {
       // Only update if dropped on a different column
       if (currentStatus === newStatus) return
 
-      updateTask({ id: taskId as any, status: newStatus })
+      moveTask(taskId, currentStatus || 'planning', newStatus)
     },
-    [updateTask, taskStatusMap],
+    [moveTask, taskStatusMap],
   )
 
   return (
@@ -81,7 +80,7 @@ export function KanbanBoard({ tasks }: KanbanBoardProps) {
           <KanbanColumn
             key={status}
             status={status}
-            tasks={tasks[status] || []}
+            tasks={displayTasks[status] || []}
           />
         ))}
       </div>
