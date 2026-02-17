@@ -176,7 +176,7 @@ export const create = mutation({
     await ctx.db.insert('activityLog', {
       taskId,
       actor: createdBy,
-      actorType: createdBy === 'api' ? 'system' : 'user',
+      actorType: (createdBy as unknown as string) === 'api' ? 'system' : 'user',
       action: 'created',
       metadata: {
         notes: `Created task: ${args!.title}`,
