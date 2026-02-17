@@ -158,6 +158,8 @@ export const create = mutation({
       }
     }
     
+    const createdBy = args!.createdBy || 'api'
+
     // Create task with required fields
     const taskId = await ctx.db.insert('tasks', {
       title: args!.title,
@@ -165,11 +167,23 @@ export const create = mutation({
       project: args!.project,
       notes: args!.notes,
       assignedAgent: args!.assignedAgent || 'unassigned',
-      createdBy: args!.createdBy || 'api',
+      createdBy,
       status: args!.status || 'planning',
       createdAt: Date.now(),
     })
-    
+
+    // Log activity
+    await ctx.db.insert('activityLog', {
+      taskId,
+      actor: createdBy,
+      actorType: createdBy === 'api' ? 'system' : 'user',
+      action: 'created',
+      metadata: {
+        notes: `Created task: ${args!.title}`,
+      },
+      timestamp: Date.now(),
+    })
+
     return { id: taskId }
   },
 })

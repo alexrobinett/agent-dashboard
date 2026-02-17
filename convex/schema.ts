@@ -132,7 +132,12 @@ export default defineSchema({
       v.literal('completed'),
       v.literal('updated'),
       v.literal('blocked'),
-      v.literal('handed_off')
+      v.literal('handed_off'),
+      v.literal('status_changed'),
+      v.literal('deleted'),
+      v.literal('assigned'),
+      v.literal('commented'),
+      v.literal('priority_changed')
     ),
     metadata: v.optional(
       v.object({

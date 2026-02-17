@@ -1,4 +1,18 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+
+vi.mock('../_generated/api', () => ({
+  api: {
+    tasks: {
+      getByStatus: 'tasks:getByStatus',
+      listFiltered: 'tasks:listFiltered',
+      getWorkload: 'tasks:getWorkload',
+      getById: 'tasks:getById',
+      create: 'tasks:create',
+      update: 'tasks:update',
+    },
+  },
+}))
+
 import http from '../http'
 
 /**
