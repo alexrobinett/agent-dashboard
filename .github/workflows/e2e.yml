@@ -59,18 +59,21 @@ jobs:
         run: pnpm exec convex codegen
 
       - name: Cache Playwright browsers
+        id: playwright-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package.json') }}
           restore-keys: |
             ${{ runner.os }}-playwright-
 
-      - name: Install Playwright system dependencies
-        run: pnpm exec playwright install-deps chromium
+      - name: Install Playwright browsers (PR smoke)
+        if: github.event_name == 'pull_request' && steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install chromium
 
-      - name: Install Playwright browsers
-        run: timeout 10m pnpm exec playwright install chromium
+      - name: Install Playwright browsers (nightly/full)
+        if: github.event_name != 'pull_request'
+        run: pnpm exec playwright install --with-deps
 
       - name: Run Playwright tests
         run: pnpm test:e2e
