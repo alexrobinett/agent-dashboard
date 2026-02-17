@@ -7,7 +7,13 @@
  * correctly from real task arrays.
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+
+vi.mock('../../../convex/_generated/server', () => ({
+  query: (config: Record<string, unknown>) => config,
+  mutation: (config: Record<string, unknown>) => config,
+}))
+
 import { aggregateWorkload } from '../../../convex/tasks'
 import * as taskModule from '../../../convex/tasks'
 

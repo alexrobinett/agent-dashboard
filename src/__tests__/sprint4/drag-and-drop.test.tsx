@@ -8,7 +8,13 @@
  * - Invalid transition rejection and error handling
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+
+vi.mock('../../../convex/_generated/server', () => ({
+  query: (config: Record<string, unknown>) => config,
+  mutation: (config: Record<string, unknown>) => config,
+}))
+
 import { groupTasksByStatus, createMockTask } from '../../test/fixtures'
 import type { TaskStatus } from '../../test/fixtures'
 import * as taskModule from '../../../convex/tasks'
@@ -33,6 +39,7 @@ function makeMutableCtx(tasks: any[]) {
           const task = store.find((t) => t._id === id)
           if (task) Object.assign(task, fields)
         },
+        insert: async () => 'log-stub',
       },
     },
     store,

@@ -7,7 +7,13 @@
  * slices results correctly.
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+
+vi.mock('../../../convex/_generated/server', () => ({
+  query: (config: Record<string, unknown>) => config,
+  mutation: (config: Record<string, unknown>) => config,
+}))
+
 import * as taskModule from '../../../convex/tasks'
 
 type HandlerExtractor = { handler: (...args: any[]) => Promise<any> }
