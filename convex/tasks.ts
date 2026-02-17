@@ -1,6 +1,44 @@
 import { query, mutation } from './_generated/server'
 import { v } from 'convex/values'
 
+/** A single row in the workload aggregation: one (agent, status) combination. */
+export type WorkloadEntry = {
+  agent: string
+  status: string
+  count: number
+}
+
+/** Pure aggregation: groups tasks by (agent, status) → flat WorkloadEntry[]. */
+export function aggregateWorkloadEntries(
+  tasks: Array<{ assignedAgent?: string; status?: string; priority?: string; project?: string }>,
+  filters?: { project?: string; priority?: string },
+): WorkloadEntry[] {
+  let filtered = tasks
+  if (filters?.project) {
+    const proj = filters.project
+    filtered = filtered.filter(t => t.project === proj)
+  }
+  if (filters?.priority) {
+    const pri = filters.priority
+    filtered = filtered.filter(t => t.priority === pri)
+  }
+
+  const counts: Record<string, number> = {}
+  for (const task of filtered) {
+    const agent = task.assignedAgent || 'unassigned'
+    const status = task.status || 'planning'
+    const key = `${agent}::${status}`
+    counts[key] = (counts[key] || 0) + 1
+  }
+
+  const entries: WorkloadEntry[] = []
+  for (const [key, count] of Object.entries(counts)) {
+    const [agent, status] = key.split('::')
+    entries.push({ agent, status, count })
+  }
+  return entries
+}
+
 export const list = query({
   handler: async (ctx) => {
     return await ctx.db.query('tasks').order('desc').take(100)
@@ -68,6 +106,20 @@ export const getWorkload = query({
   handler: async (ctx) => {
     const tasks = await ctx.db.query('tasks').order('desc').take(500)
     return aggregateWorkload(tasks)
+  },
+})
+
+export const getWorkloadByAgentStatus = query({
+  args: {
+    project: v.optional(v.string()),
+    priority: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const tasks = await ctx.db.query('tasks').order('desc').take(500)
+    return aggregateWorkloadEntries(tasks, {
+      project: args?.project,
+      priority: args?.priority,
+    })
   },
 })
 
