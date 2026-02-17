@@ -12,6 +12,8 @@ on:
 
 env:
   VITE_CONVEX_URL: https://tacit-bulldog-295.convex.cloud
+  CONVEX_DEPLOYMENT: ${{ secrets.CONVEX_DEPLOYMENT_DEV }}
+  CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY_DEV }}
 
 jobs:
   e2e:
@@ -37,6 +39,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       
+      - name: Preflight Convex codegen env
+        run: |
+          missing=0
+          if [ -z "$CONVEX_DEPLOYMENT" ]; then
+            echo "::error::Missing CONVEX_DEPLOYMENT (expected secret CONVEX_DEPLOYMENT_DEV)."
+            missing=1
+          fi
+          if [ -z "$CONVEX_DEPLOY_KEY" ]; then
+            echo "::error::Missing CONVEX_DEPLOY_KEY (expected secret CONVEX_DEPLOY_KEY_DEV)."
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            echo "Convex codegen cannot run without deployment auth. Configure required repository secrets for CI."
+            exit 1
+          fi
+
       - name: Generate Convex API types
         run: pnpm exec convex codegen
 
@@ -75,6 +93,6 @@ jobs:
       
       - name: Comment PR with test results
         uses: daun/playwright-report-summary@v3
-        if: always() && github.event_name == 'pull_request'
+        if: always() && github.event_name == 'pull_request' && hashFiles('test-results/results.json') != ''
         with:
           report-file: test-results/results.json
