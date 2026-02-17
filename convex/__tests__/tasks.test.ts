@@ -18,9 +18,13 @@ type TaskId = Id<'tasks'>
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type HandlerExtractor = { handler: (...args: any[]) => Promise<any> }
+const listHandler = (taskModule.list as unknown as HandlerExtractor).handler
 const getByStatusHandler = (taskModule.getByStatus as unknown as HandlerExtractor).handler
 const getByIdHandler = (taskModule.getById as unknown as HandlerExtractor).handler
 const listFilteredHandler = (taskModule.listFiltered as unknown as HandlerExtractor).handler
+const getWorkloadHandler = (taskModule.getWorkload as unknown as HandlerExtractor).handler
+const createHandler = (taskModule.create as unknown as HandlerExtractor).handler
+const updateHandler = (taskModule.update as unknown as HandlerExtractor).handler
 
 // ──────────────────────────────────────────────────────────
 // Helper: build a mock Convex QueryCtx
@@ -46,6 +50,9 @@ function mockCtx(tasks: Task[]) {
         }),
       }),
       get: async (id: TaskId) => tasks.find(t => t._id === id) ?? null,
+      insert: async (_table: string, _doc: Record<string, unknown>) => 'new-id' as TaskId,
+      patch: async (_id: TaskId, _fields: Record<string, unknown>) => {},
+      delete: async (_id: TaskId) => {},
     },
   }
 }
@@ -279,5 +286,192 @@ describe('listFiltered query handler', () => {
     expect(result.tasks).toHaveLength(0)
     expect(result.total).toBe(0)
     expect(result.hasMore).toBe(false)
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// list — calls the ACTUAL query handler
+// ──────────────────────────────────────────────────────────
+describe('list query handler', () => {
+  it('should return tasks ordered desc, up to 100', async () => {
+    const tasks = [
+      makeTask({ _id: '1' as TaskId, title: 'A' }),
+      makeTask({ _id: '2' as TaskId, title: 'B' }),
+    ]
+    const ctx = mockCtx(tasks)
+    const result = await listHandler(ctx, {})
+
+    expect(result).toHaveLength(2)
+    expect(result[0].title).toBe('A')
+  })
+
+  it('should return empty array when no tasks exist', async () => {
+    const ctx = mockCtx([])
+    const result = await listHandler(ctx, {})
+
+    expect(result).toHaveLength(0)
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// getWorkload — calls the ACTUAL query handler
+// ──────────────────────────────────────────────────────────
+describe('getWorkload query handler', () => {
+  it('should aggregate tasks by agent', async () => {
+    const tasks = [
+      makeTask({ _id: '1' as TaskId, assignedAgent: 'forge', status: 'in_progress', priority: 'high' }),
+      makeTask({ _id: '2' as TaskId, assignedAgent: 'forge', status: 'ready', priority: 'normal' }),
+      makeTask({ _id: '3' as TaskId, assignedAgent: 'sentinel', status: 'done', priority: 'low' }),
+    ]
+    const ctx = mockCtx(tasks)
+    const result = await getWorkloadHandler(ctx, {})
+
+    expect(result.forge.total).toBe(2)
+    expect(result.sentinel.total).toBe(1)
+    expect(result.forge.byStatus.in_progress).toBe(1)
+    expect(result.forge.byStatus.ready).toBe(1)
+    expect(result.forge.byPriority.high).toBe(1)
+    expect(result.forge.byPriority.normal).toBe(1)
+    expect(result.sentinel.byStatus.done).toBe(1)
+    expect(result.sentinel.byPriority.low).toBe(1)
+  })
+
+  it('should use "unassigned" for tasks without an agent', async () => {
+    const tasks = [
+      makeTask({ _id: '1' as TaskId, title: 'No Agent' }),
+    ]
+    const ctx = mockCtx(tasks)
+    const result = await getWorkloadHandler(ctx, {})
+
+    expect(result.unassigned).toBeDefined()
+    expect(result.unassigned.total).toBe(1)
+  })
+
+  it('should return empty object when no tasks exist', async () => {
+    const ctx = mockCtx([])
+    const result = await getWorkloadHandler(ctx, {})
+
+    expect(Object.keys(result)).toHaveLength(0)
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// create — calls the ACTUAL mutation handler
+// ──────────────────────────────────────────────────────────
+describe('create mutation handler', () => {
+  it('should create a task with valid inputs', async () => {
+    const ctx = mockCtx([])
+    const result = await createHandler(ctx, {
+      title: 'New Task',
+      priority: 'high',
+      project: 'test-proj',
+    })
+
+    expect(result).toHaveProperty('id')
+  })
+
+  it('should reject invalid priority', async () => {
+    const ctx = mockCtx([])
+
+    await expect(createHandler(ctx, {
+      title: 'Bad Priority',
+      priority: 'critical',
+      project: 'test-proj',
+    })).rejects.toThrow('Invalid priority')
+  })
+
+  it('should reject invalid status', async () => {
+    const ctx = mockCtx([])
+
+    await expect(createHandler(ctx, {
+      title: 'Bad Status',
+      priority: 'high',
+      project: 'test-proj',
+      status: 'bogus',
+    })).rejects.toThrow('Invalid status')
+  })
+
+  it('should accept valid status', async () => {
+    const ctx = mockCtx([])
+    const result = await createHandler(ctx, {
+      title: 'With Status',
+      priority: 'normal',
+      project: 'proj',
+      status: 'ready',
+    })
+
+    expect(result).toHaveProperty('id')
+  })
+
+  it('should accept optional fields', async () => {
+    const ctx = mockCtx([])
+    const result = await createHandler(ctx, {
+      title: 'Full Task',
+      priority: 'urgent',
+      project: 'proj',
+      notes: 'some notes',
+      assignedAgent: 'forge',
+      createdBy: 'main',
+    })
+
+    expect(result).toHaveProperty('id')
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// update — calls the ACTUAL mutation handler
+// ──────────────────────────────────────────────────────────
+describe('update mutation handler', () => {
+  it('should update status of an existing task', async () => {
+    const tasks = [makeTask({ _id: 'u1' as TaskId, title: 'To Update' })]
+    const ctx = mockCtx(tasks)
+    const result = await updateHandler(ctx, { id: 'u1' as TaskId, status: 'in_progress' })
+
+    expect(result).toEqual({ success: true })
+  })
+
+  it('should throw when task not found', async () => {
+    const ctx = mockCtx([])
+
+    await expect(updateHandler(ctx, { id: 'missing' as TaskId, status: 'done' }))
+      .rejects.toThrow('Task not found')
+  })
+
+  it('should reject invalid status', async () => {
+    const tasks = [makeTask({ _id: 'u2' as TaskId })]
+    const ctx = mockCtx(tasks)
+
+    await expect(updateHandler(ctx, { id: 'u2' as TaskId, status: 'bogus' }))
+      .rejects.toThrow('Invalid status')
+  })
+
+  it('should reject invalid priority', async () => {
+    const tasks = [makeTask({ _id: 'u3' as TaskId })]
+    const ctx = mockCtx(tasks)
+
+    await expect(updateHandler(ctx, { id: 'u3' as TaskId, priority: 'critical' }))
+      .rejects.toThrow('Invalid priority')
+  })
+
+  it('should update multiple fields at once', async () => {
+    const tasks = [makeTask({ _id: 'u4' as TaskId })]
+    const ctx = mockCtx(tasks)
+    const result = await updateHandler(ctx, {
+      id: 'u4' as TaskId,
+      status: 'in_review',
+      priority: 'urgent',
+      assignedAgent: 'sentinel',
+      notes: 'updated',
+    })
+
+    expect(result).toEqual({ success: true })
+  })
+
+  it('should accept update with no optional fields', async () => {
+    const tasks = [makeTask({ _id: 'u5' as TaskId })]
+    const ctx = mockCtx(tasks)
+    const result = await updateHandler(ctx, { id: 'u5' as TaskId })
+
+    expect(result).toEqual({ success: true })
   })
 })
