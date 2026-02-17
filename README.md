@@ -209,6 +209,13 @@ rm -rf node_modules/.vite
 pnpm dev
 ```
 
+## 📡 REST API
+
+The dashboard exposes a REST API via Convex HTTP endpoints. See the full documentation:
+
+- **[API Reference](./docs/API.md)** — All endpoints, parameters, response shapes, and curl examples
+- **[TypeScript Client](./docs/examples/api-client.ts)** — Ready-to-use fetch wrapper with full type safety
+
 ## 📁 Project Structure
 
 ```
