@@ -53,19 +53,6 @@ export function isValidTransition(from: string, to: string): boolean {
   return allowed.includes(to)
 }
 
-/** System token verification using Convex runtime env. */
-function verifySystemToken(_token: string | undefined): boolean {
-  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-  const expected = env?.SYSTEM_TOKEN ?? env?.CONVEX_SYSTEM_TOKEN
-  if (!expected) {
-    console.error('SYSTEM_TOKEN/CONVEX_SYSTEM_TOKEN is not configured in Convex env')
-    return false
-  }
-  if (!_token) return false
-  return _token === expected
-}
-
-const DEFAULT_LEASE_TTL_MS = 30 * 60 * 1000
 const MAX_DEPENDENCY_DEPTH = 25
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g
@@ -310,44 +297,14 @@ export const listTasks = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, _args) => {
+    const { status, agent, project, limit } = (_args ?? {}) as any
 
-      const {  status, agent, project, limit  } = _args as any
-    let tasks
+    const max = limit ?? 100
+    let tasks = await ctx.db.query('tasks').order('desc').take(max)
 
-    if (project) {
-      tasks = await ctx.db
-        .query('tasks')
-        .withIndex('by_project', (q) => q.eq('project', project))
-        .order('desc')
-        .take(limit ?? 100)
-      if (status) tasks = tasks.filter((t) => t.status === status)
-      if (agent) tasks = tasks.filter((t) => t.assignedAgent === agent)
-    } else if (status && agent) {
-      tasks = await ctx.db
-        .query('tasks')
-        .withIndex('by_status_and_agent', (q) =>
-          q.eq('status', status as any).eq('assignedAgent', agent),
-        )
-        .order('desc')
-        .take(limit ?? 100)
-    } else if (status) {
-      tasks = await ctx.db
-        .query('tasks')
-        .withIndex('by_status', (q) => q.eq('status', status as any))
-        .order('desc')
-        .take(limit ?? 100)
-    } else if (agent) {
-      tasks = await ctx.db
-        .query('tasks')
-        .withIndex('by_agent', (q) => q.eq('assignedAgent', agent))
-        .order('desc')
-        .take(limit ?? 100)
-    } else {
-      tasks = await ctx.db
-        .query('tasks')
-        .order('desc')
-        .take(limit ?? 100)
-    }
+    if (project) tasks = tasks.filter((t) => t.project === project)
+    if (status) tasks = tasks.filter((t) => t.status === status)
+    if (agent) tasks = tasks.filter((t) => t.assignedAgent === agent)
 
     return tasks
   },
@@ -390,24 +347,6 @@ export const getBoard = query({
     }
 
     return board
-  },
-})
-
-// ⚠️ DEPRECATED — Returns legacy lease info from task fields
-export const getLease = query({
-  args: { taskId: v.id('tasks') },
-  handler: async (ctx, _args) => {
-
-      const {  taskId  } = _args as any
-    console.warn('DEPRECATED: getLease — lease management is no longer used. Use pushStatus instead.')
-    const task = await ctx.db.get(taskId as Id<"tasks">)
-    if (!task) return null
-    return {
-      leaseOwner: task.leaseOwner,
-      leaseExpiresAt: task.leaseExpiresAt,
-      handoffCount: task.handoffCount,
-      version: task.version,
-    }
   },
 })
 
@@ -528,7 +467,6 @@ export const createTask = mutation({
       project: sanitizeOptionalText(args.project, 200),
       notes: sanitizeOptionalText(args.notes, 4000),
       version: 0,
-      attemptCount: 0,
     })
   },
 })
@@ -595,8 +533,6 @@ export const submitForReview = mutation({
     }
     const patch: Record<string, unknown> = {
       status: 'in_review',
-      leaseOwner: undefined,
-      leaseExpiresAt: undefined,
       version: (task.version || 0) + 1,
     }
     if (notes) patch.notes = sanitizeText(notes, 4000)
@@ -623,8 +559,6 @@ export const submitForReviewAndAssign = mutation({
     const patch: Record<string, unknown> = {
       status: 'in_review',
       assignedAgent: reviewer,
-      leaseOwner: undefined,
-      leaseExpiresAt: undefined,
       version: (task.version || 0) + 1,
     }
     if (notes) patch.notes = sanitizeText(notes, 4000)
@@ -654,8 +588,6 @@ export const completeTask = mutation({
       status: 'done',
       completedAt: Date.now(),
       result: sanitizeOptionalText(result, 4000),
-      leaseOwner: undefined,
-      leaseExpiresAt: undefined,
       version: (task.version || 0) + 1,
     })
     return taskId
@@ -721,17 +653,6 @@ export const updateTask = mutation({
     }
     if (fields.status === 'done') {
       patch.completedAt = Date.now()
-      patch.leaseOwner = undefined
-      patch.leaseExpiresAt = undefined
-    }
-    if (
-      fields.status === 'ready' ||
-      fields.status === 'planning' ||
-      fields.status === 'in_review' ||
-      fields.status === 'blocked'
-    ) {
-      patch.leaseOwner = undefined
-      patch.leaseExpiresAt = undefined
     }
 
     patch.version = (task.version || 0) + 1
@@ -756,8 +677,6 @@ export const handoffTask = mutation({
       assignedAgent: sanitizeText(toAgent, 80),
       notes: sanitizeOptionalText(notes ?? task.notes, 4000),
       status: 'ready',
-      leaseOwner: undefined,
-      leaseExpiresAt: undefined,
       version: (task.version || 0) + 1,
     })
     return taskId
@@ -934,342 +853,4 @@ export const remove = mutation({
   },
 })
 
-// ═══════════════════════════════════════════════════════════
-// DEPRECATED Mutations (backward compat, log warnings)
-// ═══════════════════════════════════════════════════════════
-
-export const recoverStaleTasks = mutation({
-  args: {
-    staleThresholdMs: v.optional(v.number()),
-    systemToken: v.optional(v.string()),
-  },
-  handler: async (_ctx, _args) => {
-    console.warn('DEPRECATED: recoverStaleTasks is a no-op. OpenClaw sessions_spawn handles dispatch now.')
-    return { recovered: [], count: 0 }
-  },
-})
-
-export const agentHeartbeat = mutation({
-  args: {
-    taskId: v.id('tasks'),
-    agent: v.string(),
-    systemToken: v.optional(v.string()),
-  },
-  handler: async (_ctx, _args) => {
-    console.warn('DEPRECATED: agentHeartbeat is a no-op. OpenClaw sessions_spawn handles liveness now.')
-    return { ok: true, nextHeartbeatBefore: Date.now() + DEFAULT_LEASE_TTL_MS }
-  },
-})
-
-/** @deprecated Still functional but rarely needed */
-export const sanitizeTaskTextFields = mutation({
-  args: {
-    limit: v.optional(v.number()),
-    systemToken: v.optional(v.string()),
-  },
-  handler: async (ctx, _args) => {
-
-      const {  limit, systemToken  } = _args as any
-    console.warn('DEPRECATED: sanitizeTaskTextFields — still functional but rarely needed.')
-    if (!verifySystemToken(systemToken)) {
-      throw new Error('Authentication failed')
-    }
-    const max = Math.max(1, Math.min(limit ?? 500, 2000))
-    const tasks = await ctx.db.query('tasks').order('desc').take(max)
-    let scanned = 0
-    let updated = 0
-
-    for (const task of tasks) {
-      scanned += 1
-      const patch: Record<string, unknown> = {}
-      const currentVersion = task.version || 0
-
-      const cleanTitle = sanitizeText(task.title ?? '', 200)
-      if (cleanTitle !== task.title) patch.title = cleanTitle
-
-      const cleanDescription = sanitizeOptionalText(task.description, 4000)
-      if (cleanDescription !== task.description) patch.description = cleanDescription
-
-      const cleanNotes = sanitizeOptionalText(task.notes, 4000)
-      if (cleanNotes !== task.notes) patch.notes = cleanNotes
-
-      const cleanResult = sanitizeOptionalText(task.result, 4000)
-      if (cleanResult !== task.result) patch.result = cleanResult
-
-      const cleanBlockedReason = sanitizeOptionalText(task.blockedReason, 1000)
-      if (cleanBlockedReason !== task.blockedReason) patch.blockedReason = cleanBlockedReason
-
-      const cleanProject = sanitizeOptionalText(task.project, 200)
-      if (cleanProject !== task.project) patch.project = cleanProject
-
-      const cleanAssignedAgent = sanitizeOptionalText(task.assignedAgent, 80)
-      if (cleanAssignedAgent !== task.assignedAgent) patch.assignedAgent = cleanAssignedAgent
-
-      if (Object.keys(patch).length > 0) {
-        patch.version = currentVersion + 1
-        await ctx.db.patch(task._id, patch)
-        updated += 1
-      }
-    }
-
-    return { scanned, updated }
-  },
-})
-
-export const acquireLease = mutation({
-  args: {
-    taskId: v.id('tasks'),
-    owner: v.string(),
-    ttlMs: v.number(),
-    systemToken: v.optional(v.string()),
-  },
-  handler: async (ctx, _args) => {
-
-      const {  taskId, owner, ttlMs, systemToken  } = _args as any
-    console.warn('DEPRECATED: acquireLease — lease management is no longer needed. Use pushStatus instead.')
-    if (!verifySystemToken(systemToken)) {
-      throw new Error('Authentication failed')
-    }
-
-    const task = await ctx.db.get(taskId as Id<"tasks">)
-    if (!task) throw new Error('Task not found')
-
-    const now = Date.now()
-    const expiresAt = now + ttlMs
-    const currentVersion = task.version || 0
-
-    if (task.leaseOwner && task.leaseExpiresAt) {
-      if (task.leaseExpiresAt > now) {
-        if (task.leaseOwner !== owner) {
-          throw new Error('Lease is held by another owner')
-        }
-        await ctx.db.patch(taskId, {
-          leaseExpiresAt: expiresAt,
-          version: currentVersion + 1,
-        })
-        return { owner, expiresAt, version: currentVersion + 1 }
-      }
-    }
-
-    await ctx.db.patch(taskId, {
-      leaseOwner: owner,
-      leaseExpiresAt: expiresAt,
-      version: currentVersion + 1,
-    })
-
-    return { owner, expiresAt, version: currentVersion + 1 }
-  },
-})
-
-export const releaseLease = mutation({
-  args: {
-    taskId: v.id('tasks'),
-    owner: v.string(),
-    expectedVersion: v.optional(v.number()),
-    systemToken: v.optional(v.string()),
-  },
-  handler: async (ctx, _args) => {
-
-      const {  taskId, owner, expectedVersion, systemToken  } = _args as any
-    console.warn('DEPRECATED: releaseLease — lease management is no longer needed. Use pushStatus instead.')
-    if (!verifySystemToken(systemToken)) {
-      throw new Error('Authentication failed')
-    }
-
-    const task = await ctx.db.get(taskId as Id<"tasks">)
-    if (!task) throw new Error('Task not found')
-
-    if (expectedVersion !== undefined) {
-      const currentVersion = task.version || 0
-      if (currentVersion !== expectedVersion) {
-        throw new Error('Concurrent modification - retry')
-      }
-    }
-
-    if (task.leaseOwner !== owner) {
-      throw new Error('Cannot release lease: not the current owner')
-    }
-
-    const currentVersion = task.version || 0
-    await ctx.db.patch(taskId, {
-      leaseOwner: undefined,
-      leaseExpiresAt: undefined,
-      version: currentVersion + 1,
-    })
-
-    return { released: true }
-  },
-})
-
-export const refreshLease = mutation({
-  args: {
-    taskId: v.id('tasks'),
-    owner: v.string(),
-    ttlMs: v.number(),
-    expectedVersion: v.optional(v.number()),
-    systemToken: v.optional(v.string()),
-  },
-  handler: async (ctx, _args) => {
-
-      const {  taskId, owner, ttlMs, expectedVersion, systemToken  } = _args as any
-    console.warn('DEPRECATED: refreshLease — lease management is no longer needed. Use pushStatus instead.')
-    if (!verifySystemToken(systemToken)) {
-      throw new Error('Authentication failed')
-    }
-
-    const task = await ctx.db.get(taskId as Id<"tasks">)
-    if (!task) throw new Error('Task not found')
-
-    if (task.leaseOwner !== owner) {
-      throw new Error('Cannot refresh lease: not the current owner')
-    }
-
-    const now = Date.now()
-    if (task.leaseExpiresAt && task.leaseExpiresAt <= now) {
-      throw new Error('Cannot refresh: lease has expired')
-    }
-
-    if (expectedVersion !== undefined) {
-      const currentVersion = task.version || 0
-      if (currentVersion !== expectedVersion) {
-        throw new Error('Concurrent modification - retry')
-      }
-    }
-
-    const currentVersion = task.version || 0
-    const expiresAt = now + ttlMs
-
-    await ctx.db.patch(taskId, {
-      leaseExpiresAt: expiresAt,
-      version: currentVersion + 1,
-    })
-
-    return { owner, expiresAt, version: currentVersion + 1 }
-  },
-})
-
-export const transferLease = mutation({
-  args: {
-    taskId: v.id('tasks'),
-    fromOwner: v.string(),
-    toOwner: v.string(),
-    ttlMs: v.optional(v.number()),
-    expectedVersion: v.optional(v.number()),
-    systemToken: v.optional(v.string()),
-  },
-  handler: async (ctx, _args) => {
-
-      const {  taskId, fromOwner, toOwner, ttlMs, expectedVersion, systemToken  } = _args as any
-    console.warn('DEPRECATED: transferLease — lease management is no longer needed. Use pushStatus instead.')
-    if (!verifySystemToken(systemToken)) {
-      throw new Error('Authentication failed')
-    }
-
-    const task = await ctx.db.get(taskId as Id<"tasks">)
-    if (!task) throw new Error('Task not found')
-
-    if (expectedVersion !== undefined) {
-      const currentVersion = task.version || 0
-      if (currentVersion !== expectedVersion) {
-        throw new Error('Concurrent modification - retry')
-      }
-    }
-
-    const now = Date.now()
-    const currentVersion = task.version || 0
-
-    if (task.leaseOwner !== fromOwner) {
-      throw new Error('Transfer failed: lease not held by the specified owner')
-    }
-
-    if (task.leaseExpiresAt && task.leaseExpiresAt <= now) {
-      throw new Error('Transfer failed: lease has expired')
-    }
-
-    const remainingMs = task.leaseExpiresAt ? task.leaseExpiresAt - now : 0
-    const newTtlMs = ttlMs ?? remainingMs
-    const newExpiresAt = now + newTtlMs
-    const handoffCount = (task.handoffCount || 0) + 1
-
-    await ctx.db.patch(taskId, {
-      leaseOwner: toOwner,
-      leaseExpiresAt: newExpiresAt,
-      handoffCount: handoffCount,
-      version: currentVersion + 1,
-    })
-
-    return { fromOwner, toOwner, expiresAt: newExpiresAt, handoffCount, version: currentVersion + 1 }
-  },
-})
-
-export const casClaim = mutation({
-  args: {
-    taskId: v.id('tasks'),
-    agent: v.string(),
-    fromStatuses: v.string(),
-    toStatus: v.string(),
-    leaseTtlMs: v.optional(v.number()),
-    systemToken: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    console.warn('DEPRECATED: casClaim — use pushStatus instead. OpenClaw sessions_spawn handles dispatch.')
-    const taskId = args!.taskId
-    const agent = args!.agent as unknown as string
-    const fromStatuses = args!.fromStatuses as unknown as string
-    const toStatus = args!.toStatus as unknown as string
-    const leaseTtlMs = args!.leaseTtlMs as unknown as number | undefined
-    const systemToken = args!.systemToken as unknown as string | undefined
-
-    if (!verifySystemToken(systemToken)) {
-      throw new Error('Authentication failed')
-    }
-
-    const task = await ctx.db.get(taskId as Id<"tasks">)
-    if (!task) {
-      return { success: false, error: 'Task not found' }
-    }
-
-    const allowed = fromStatuses.split(',').map((s: string) => s.trim())
-    if (!allowed.includes(task.status)) {
-      return {
-        success: false,
-        error: 'Task status not in allowed list',
-        currentStatus: task.status,
-      }
-    }
-
-    const now = Date.now()
-
-    if (task.leaseOwner && task.leaseExpiresAt && task.leaseExpiresAt > now) {
-      if (task.leaseOwner !== agent) {
-        return {
-          success: false,
-          error: 'Another agent holds the lease',
-          leaseOwner: task.leaseOwner,
-        }
-      }
-    }
-
-    const currentVersion = task.version || 0
-    const ttl = leaseTtlMs ?? DEFAULT_LEASE_TTL_MS
-    const attempts = (task.attemptCount || 0) + 1
-
-    await ctx.db.patch(taskId, {
-      assignedAgent: agent,
-      status: toStatus as any,
-      startedAt: task.startedAt ?? now,
-      leaseOwner: agent,
-      leaseExpiresAt: now + ttl,
-      attemptCount: attempts,
-      version: currentVersion + 1,
-    })
-
-    return {
-      success: true,
-      previousStatus: task.status,
-      version: currentVersion + 1,
-      leaseOwner: agent,
-      leaseExpiresAt: now + ttl,
-    }
-  },
-})
+// EOF — deprecated lease/CAS mutations removed in Phase 4 cleanup
