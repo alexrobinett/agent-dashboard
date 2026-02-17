@@ -39,6 +39,8 @@ jobs:
 
       - name: Generate local stubs for PR smoke
         if: github.event_name == 'pull_request'
+        env:
+          SKIP_ROUTE_TREE_STUB: "1"
         run: bash scripts/generate-stubs.sh
 
       - name: Preflight Convex codegen env
