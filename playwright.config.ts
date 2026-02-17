@@ -14,14 +14,17 @@ export default defineConfig({
   /* Fail the build on CI if you accidentally left test.only in the source code */
   forbidOnly: !!process.env.CI,
   
-  /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
+  /* Retry on CI only (single retry to limit runaway CI time) */
+  retries: process.env.CI ? 1 : 0,
   
   /* Opt out of parallel tests on CI */
   workers: process.env.CI ? 1 : undefined,
   
   /* 30 second timeout per test */
   timeout: 30 * 1000,
+
+  /* Ensure CI exits before GitHub job hard-timeout so artifacts upload */
+  globalTimeout: process.env.CI ? 25 * 60 * 1000 : undefined,
   
   /* Reporter to use */
   reporter: [
@@ -81,7 +84,7 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
     env: {
-      VITE_CONVEX_URL: process.env.VITE_CONVEX_URL || 'https://tacit-bulldog-295.convex.cloud',
+      VITE_CONVEX_URL: process.env.VITE_CONVEX_URL || 'https://curious-dolphin-134.convex.site',
     },
   },
 })

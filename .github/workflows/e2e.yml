@@ -11,7 +11,8 @@ on:
   workflow_dispatch:
 
 env:
-  VITE_CONVEX_URL: https://tacit-bulldog-295.convex.cloud
+  VITE_CONVEX_URL: https://curious-dolphin-134.convex.site
+  BASE_URL: http://localhost:4173
 
 jobs:
   e2e:
@@ -44,7 +45,14 @@ jobs:
         run: pnpm exec playwright install --with-deps
       
       - name: Run Playwright tests
-        run: pnpm test:e2e
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "Running PR-gate smoke suite (desktop-chromium only)"
+            pnpm exec playwright test e2e/tests/dashboard.spec.ts --project=desktop-chromium --max-failures=1
+          else
+            echo "Running full multi-project E2E suite"
+            pnpm test:e2e
+          fi
         env:
           # CI environment variable enables headless mode
           CI: true
