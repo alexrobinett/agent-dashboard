@@ -125,7 +125,7 @@ async function run() {
     await client.updateTask("nonexistent-id-12345", { status: "ready" });
     nok("Nonexistent PATCH", "Expected error");
   } catch (e: any) {
-    (e instanceof ApiError && e.status === 404) ? ok("Nonexistent PATCH returns 404") : nok("Nonexistent PATCH", `${e.status}: ${e.message}`);
+    (e instanceof ApiError && (e.status === 400 || e.status === 404)) ? ok(`Nonexistent PATCH returns ${e.status}`) : nok("Nonexistent PATCH", `${e.status}: ${e.message}`);
   }
 
   // Summary

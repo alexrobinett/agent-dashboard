@@ -1213,7 +1213,7 @@ export const casClaim = mutation({
   },
   handler: async (ctx, args) => {
     console.warn('DEPRECATED: casClaim — use pushStatus instead. OpenClaw sessions_spawn handles dispatch.')
-    const taskId = args!.taskId
+    const taskId = args!.taskId as unknown as Id<"tasks">
     const agent = args!.agent as unknown as string
     const fromStatuses = args!.fromStatuses as unknown as string
     const toStatus = args!.toStatus as unknown as string
@@ -1224,7 +1224,7 @@ export const casClaim = mutation({
       throw new Error('Authentication failed')
     }
 
-    const task = await ctx.db.get(taskId as Id<"tasks">)
+    const task = await ctx.db.get(taskId)
     if (!task) {
       return { success: false, error: 'Task not found' }
     }

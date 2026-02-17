@@ -19,6 +19,12 @@ export interface QueryCtx {
       order: (order: string) => {
         take: (n: number) => Promise<any[]>;
       };
+      withIndex: (name: string, predicate?: (q: any) => any) => {
+        order: (order: string) => {
+          take: (n: number) => Promise<any[]>;
+        };
+        take: (n: number) => Promise<any[]>;
+      };
     };
     get: (id: any) => Promise<any>;
   };
