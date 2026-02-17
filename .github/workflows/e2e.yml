@@ -37,9 +37,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       
-      - name: Generate stub files for CI
-        run: bash scripts/generate-stubs.sh
-      
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps
       
