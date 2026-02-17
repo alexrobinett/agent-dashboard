@@ -117,8 +117,8 @@ export const getWorkloadByAgentStatus = query({
   handler: async (ctx, args) => {
     const tasks = await ctx.db.query('tasks').order('desc').take(500)
     return aggregateWorkloadEntries(tasks, {
-      project: args?.project,
-      priority: args?.priority,
+      project: args?.project as string | undefined,
+      priority: args?.priority as string | undefined,
     })
   },
 })
