@@ -3,7 +3,8 @@
  *
  * Tests exercise the actual aggregateWorkload() pure function exported
  * from convex/tasks.ts and the getWorkload query handler, verifying
- * that task counts per agent are computed correctly from real data.
+ * that task counts per agent, per status, and per priority are computed
+ * correctly from real task arrays.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -82,8 +83,11 @@ describe('Workload View - aggregateWorkload() pure function', () => {
     ]
     const result = aggregateWorkload(tasks)
 
-    // undefined and '' both fall through to 'unassigned'
+    // undefined, missing, and '' all fall through to 'unassigned'
     expect(result['unassigned'].total).toBe(3)
+    expect(result['unassigned'].byStatus['planning']).toBe(1)
+    expect(result['unassigned'].byStatus['ready']).toBe(1)
+    expect(result['unassigned'].byStatus['blocked']).toBe(1)
     expect(result['forge'].total).toBe(1)
   })
 
@@ -104,7 +108,7 @@ describe('Workload View - aggregateWorkload() pure function', () => {
     expect(Object.keys(result)).toHaveLength(0)
   })
 
-  it('should handle many agents with varying task counts', () => {
+  it('should handle many agents with varying task counts and cross-validate totals', () => {
     const tasks = [
       { assignedAgent: 'forge', status: 'planning', priority: 'normal' },
       { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
@@ -122,9 +126,70 @@ describe('Workload View - aggregateWorkload() pure function', () => {
     expect(result['oracle'].total).toBe(3)
     expect(result['friday'].total).toBe(1)
 
-    // Cross-check: totals across all agents should match input count
+    // Cross-check: sum of all agent totals == input count
     const totalAcrossAgents = Object.values(result).reduce((sum, w) => sum + w.total, 0)
     expect(totalAcrossAgents).toBe(7)
+  })
+
+  it('should have byStatus counts that sum to total for each agent', () => {
+    const tasks = [
+      { assignedAgent: 'forge', status: 'planning', priority: 'normal' },
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
+      { assignedAgent: 'forge', status: 'done', priority: 'low' },
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'urgent' },
+      { assignedAgent: 'sentinel', status: 'ready', priority: 'normal' },
+      { assignedAgent: 'sentinel', status: 'blocked', priority: 'high' },
+    ]
+    const result = aggregateWorkload(tasks)
+
+    // For each agent, sum of byStatus values must equal total
+    for (const [agent, workload] of Object.entries(result)) {
+      const statusSum = Object.values(workload.byStatus).reduce((s, c) => s + c, 0)
+      expect(statusSum).toBe(workload.total)
+    }
+
+    // For each agent, sum of byPriority values must equal total
+    for (const [agent, workload] of Object.entries(result)) {
+      const prioritySum = Object.values(workload.byPriority).reduce((s, c) => s + c, 0)
+      expect(prioritySum).toBe(workload.total)
+    }
+  })
+
+  it('should aggregate a realistic mixed workload correctly', () => {
+    // Simulate a real team workload
+    const tasks = [
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
+      { assignedAgent: 'forge', status: 'planning', priority: 'normal' },
+      { assignedAgent: 'sentinel', status: 'in_review', priority: 'normal' },
+      { assignedAgent: 'sentinel', status: 'in_review', priority: 'high' },
+      { assignedAgent: 'sentinel', status: 'done', priority: 'low' },
+      { assignedAgent: 'oracle', status: 'blocked', priority: 'urgent' },
+      { status: 'planning', priority: 'low' }, // unassigned
+    ]
+    const result = aggregateWorkload(tasks)
+
+    // Forge: 3 tasks, 2 in_progress + 1 planning, 2 high + 1 normal
+    expect(result['forge'].total).toBe(3)
+    expect(result['forge'].byStatus['in_progress']).toBe(2)
+    expect(result['forge'].byStatus['planning']).toBe(1)
+    expect(result['forge'].byPriority['high']).toBe(2)
+    expect(result['forge'].byPriority['normal']).toBe(1)
+
+    // Sentinel: 3 tasks, 2 in_review + 1 done
+    expect(result['sentinel'].total).toBe(3)
+    expect(result['sentinel'].byStatus['in_review']).toBe(2)
+    expect(result['sentinel'].byStatus['done']).toBe(1)
+
+    // Oracle: 1 blocked urgent task
+    expect(result['oracle'].total).toBe(1)
+    expect(result['oracle'].byStatus['blocked']).toBe(1)
+    expect(result['oracle'].byPriority['urgent']).toBe(1)
+
+    // Unassigned: 1 planning low task
+    expect(result['unassigned'].total).toBe(1)
+    expect(result['unassigned'].byStatus['planning']).toBe(1)
+    expect(result['unassigned'].byPriority['low']).toBe(1)
   })
 })
 
@@ -140,14 +205,35 @@ describe('Workload View - getWorkload query handler', () => {
 
     expect(result['forge'].total).toBe(2)
     expect(result['forge'].byStatus['in_progress']).toBe(1)
+    expect(result['forge'].byStatus['planning']).toBe(1)
     expect(result['forge'].byPriority['high']).toBe(1)
+    expect(result['forge'].byPriority['normal']).toBe(1)
     expect(result['sentinel'].total).toBe(1)
     expect(result['sentinel'].byStatus['done']).toBe(1)
+    expect(result['sentinel'].byPriority['low']).toBe(1)
   })
 
   it('should return empty workload for empty database', async () => {
     const ctx = mockCtx([])
     const result = await getWorkloadHandler(ctx, {})
     expect(Object.keys(result)).toHaveLength(0)
+  })
+
+  it('should produce consistent results between handler and pure function', async () => {
+    const tasks = [
+      { _id: 't1', assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
+      { _id: 't2', assignedAgent: 'oracle', status: 'done', priority: 'normal' },
+      { _id: 't3', assignedAgent: 'forge', status: 'blocked', priority: 'urgent' },
+    ]
+    const ctx = mockCtx(tasks)
+
+    const handlerResult = await getWorkloadHandler(ctx, {})
+    const pureResult = aggregateWorkload(tasks)
+
+    // Both should produce identical output
+    expect(handlerResult['forge'].total).toBe(pureResult['forge'].total)
+    expect(handlerResult['oracle'].total).toBe(pureResult['oracle'].total)
+    expect(handlerResult['forge'].byStatus).toEqual(pureResult['forge'].byStatus)
+    expect(handlerResult['forge'].byPriority).toEqual(pureResult['forge'].byPriority)
   })
 })

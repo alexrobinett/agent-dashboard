@@ -4,7 +4,8 @@
  * Tests exercise the actual logActivity mutation handler and
  * getTaskActivity / getRecentActivity query handlers from
  * convex/activityLog.ts, verifying that activity entries are
- * generated with correct timestamps, actions, and metadata.
+ * generated with correct timestamps, actions, before/after metadata,
+ * and that queries filter/limit results correctly.
  */
 
 import { describe, it, expect } from 'vitest'
@@ -40,7 +41,7 @@ function makeMutableCtx() {
 }
 
 describe('Activity Log - logActivity mutation handler', () => {
-  it('should create an activity entry with timestamp', async () => {
+  it('should create a log entry with correct fields and valid timestamp', async () => {
     const { ctx, logs } = makeMutableCtx()
     const before = Date.now()
 
@@ -51,16 +52,17 @@ describe('Activity Log - logActivity mutation handler', () => {
       action: 'created',
     })
 
+    const after = Date.now()
     expect(logs).toHaveLength(1)
     expect(logs[0].taskId).toBe('task-1')
     expect(logs[0].actor).toBe('forge')
     expect(logs[0].actorType).toBe('agent')
     expect(logs[0].action).toBe('created')
     expect(logs[0].timestamp).toBeGreaterThanOrEqual(before)
-    expect(logs[0].timestamp).toBeLessThanOrEqual(Date.now())
+    expect(logs[0].timestamp).toBeLessThanOrEqual(after)
   })
 
-  it('should store status transition metadata', async () => {
+  it('should store status transition metadata with correct before/after values', async () => {
     const { ctx, logs } = makeMutableCtx()
 
     await logActivityHandler(ctx, {
@@ -75,14 +77,12 @@ describe('Activity Log - logActivity mutation handler', () => {
       },
     })
 
-    expect(logs[0].metadata).toEqual({
-      fromStatus: 'planning',
-      toStatus: 'in_progress',
-      notes: 'Started implementation',
-    })
+    expect(logs[0].metadata.fromStatus).toBe('planning')
+    expect(logs[0].metadata.toStatus).toBe('in_progress')
+    expect(logs[0].metadata.notes).toBe('Started implementation')
   })
 
-  it('should store entries without optional metadata', async () => {
+  it('should handle entries without optional metadata', async () => {
     const { ctx, logs } = makeMutableCtx()
 
     await logActivityHandler(ctx, {
@@ -94,6 +94,7 @@ describe('Activity Log - logActivity mutation handler', () => {
 
     expect(logs[0].metadata).toBeUndefined()
     expect(logs[0].action).toBe('claimed')
+    expect(logs[0].actor).toBe('sentinel')
   })
 
   it('should return the inserted entry ID', async () => {
@@ -110,7 +111,7 @@ describe('Activity Log - logActivity mutation handler', () => {
     expect(typeof result).toBe('string')
   })
 
-  it('should record all 7 action types', async () => {
+  it('should record all 7 action types correctly', async () => {
     const { ctx, logs } = makeMutableCtx()
     const actions = ['created', 'claimed', 'started', 'completed', 'updated', 'blocked', 'handed_off']
 
@@ -128,7 +129,7 @@ describe('Activity Log - logActivity mutation handler', () => {
     expect(recordedActions).toEqual(actions)
   })
 
-  it('should record different actor types', async () => {
+  it('should record all 3 actor types correctly', async () => {
     const { ctx, logs } = makeMutableCtx()
 
     await logActivityHandler(ctx, {
@@ -142,8 +143,24 @@ describe('Activity Log - logActivity mutation handler', () => {
     })
 
     expect(logs[0].actorType).toBe('agent')
+    expect(logs[0].actor).toBe('forge')
     expect(logs[1].actorType).toBe('user')
+    expect(logs[1].actor).toBe('admin')
     expect(logs[2].actorType).toBe('system')
+    expect(logs[2].actor).toBe('scheduler')
+  })
+
+  it('should generate unique IDs for each log entry', async () => {
+    const { ctx } = makeMutableCtx()
+
+    const id1 = await logActivityHandler(ctx, {
+      taskId: 'task-1', actor: 'forge', actorType: 'agent', action: 'created',
+    })
+    const id2 = await logActivityHandler(ctx, {
+      taskId: 'task-1', actor: 'forge', actorType: 'agent', action: 'started',
+    })
+
+    expect(id1).not.toBe(id2)
   })
 })
 
@@ -151,7 +168,6 @@ describe('Activity Log - Task Lifecycle via logActivity', () => {
   it('should build a complete lifecycle with correct chronological order', async () => {
     const { ctx, logs } = makeMutableCtx()
 
-    // Simulate a full task lifecycle
     const lifecycle = [
       { action: 'created', actor: 'api', actorType: 'system' },
       { action: 'claimed', actor: 'forge', actorType: 'agent' },
@@ -165,21 +181,19 @@ describe('Activity Log - Task Lifecycle via logActivity', () => {
     }
 
     expect(logs).toHaveLength(5)
-
-    // All belong to the same task
     expect(logs.every((l: any) => l.taskId === 'task-lifecycle')).toBe(true)
 
-    // Timestamps should be non-decreasing (all created within same tick or ascending)
+    // Timestamps should be non-decreasing
     for (let i = 1; i < logs.length; i++) {
       expect(logs[i].timestamp).toBeGreaterThanOrEqual(logs[i - 1].timestamp)
     }
 
-    // First and last actions should be lifecycle boundaries
+    // First action is creation, last is completion
     expect(logs[0].action).toBe('created')
     expect(logs[logs.length - 1].action).toBe('completed')
   })
 
-  it('should track status transitions with from/to metadata', async () => {
+  it('should track status transitions with from/to chain that links correctly', async () => {
     const { ctx, logs } = makeMutableCtx()
 
     const transitions = [
@@ -200,24 +214,57 @@ describe('Activity Log - Task Lifecycle via logActivity', () => {
     }
 
     expect(logs).toHaveLength(4)
-    // Each entry has matching from/to metadata
-    expect(logs[0].metadata.fromStatus).toBe('planning')
-    expect(logs[0].metadata.toStatus).toBe('ready')
-    expect(logs[3].metadata.fromStatus).toBe('in_review')
-    expect(logs[3].metadata.toStatus).toBe('done')
 
-    // Verify chain: each toStatus matches next fromStatus
+    // Verify the chain links: each toStatus matches next fromStatus
     for (let i = 0; i < logs.length - 1; i++) {
       expect(logs[i].metadata.toStatus).toBe(logs[i + 1].metadata.fromStatus)
     }
+
+    // Verify start and end of the chain
+    expect(logs[0].metadata.fromStatus).toBe('planning')
+    expect(logs[logs.length - 1].metadata.toStatus).toBe('done')
+  })
+
+  it('should track a blocked-then-resumed task lifecycle', async () => {
+    const { ctx, logs } = makeMutableCtx()
+
+    await logActivityHandler(ctx, {
+      taskId: 'task-blocked',
+      actor: 'forge',
+      actorType: 'agent',
+      action: 'started',
+      metadata: { fromStatus: 'ready', toStatus: 'in_progress' },
+    })
+    await logActivityHandler(ctx, {
+      taskId: 'task-blocked',
+      actor: 'forge',
+      actorType: 'agent',
+      action: 'blocked',
+      metadata: { fromStatus: 'in_progress', toStatus: 'blocked', notes: 'Waiting for API key' },
+    })
+    await logActivityHandler(ctx, {
+      taskId: 'task-blocked',
+      actor: 'forge',
+      actorType: 'agent',
+      action: 'started',
+      metadata: { fromStatus: 'blocked', toStatus: 'in_progress', notes: 'API key received' },
+    })
+
+    expect(logs).toHaveLength(3)
+    expect(logs[0].metadata.toStatus).toBe('in_progress')
+    expect(logs[1].metadata.toStatus).toBe('blocked')
+    expect(logs[1].metadata.notes).toBe('Waiting for API key')
+    expect(logs[2].metadata.fromStatus).toBe('blocked')
+    expect(logs[2].metadata.toStatus).toBe('in_progress')
+    expect(logs[2].metadata.notes).toBe('API key received')
   })
 })
 
 describe('Activity Log - Query handlers', () => {
-  it('getTaskActivity should filter entries by taskId', async () => {
-    const { ctx, logs } = makeMutableCtx()
+  it('getTaskActivity should filter entries by taskId correctly', async () => {
+    const { ctx } = makeMutableCtx()
 
-    // Insert entries for two different tasks
+    // Insert entries for three different tasks
     await logActivityHandler(ctx, {
       taskId: 'task-a', actor: 'forge', actorType: 'agent', action: 'created',
     })
@@ -227,11 +274,30 @@ describe('Activity Log - Query handlers', () => {
     await logActivityHandler(ctx, {
       taskId: 'task-a', actor: 'forge', actorType: 'agent', action: 'started',
     })
+    await logActivityHandler(ctx, {
+      taskId: 'task-c', actor: 'oracle', actorType: 'agent', action: 'claimed',
+    })
 
-    const result = await getTaskActivityHandler(ctx, { taskId: 'task-a' })
+    const resultA = await getTaskActivityHandler(ctx, { taskId: 'task-a' })
+    expect(resultA).toHaveLength(2)
+    expect(resultA.every((l: any) => l.taskId === 'task-a')).toBe(true)
+    expect(resultA.map((l: any) => l.action)).toContain('created')
+    expect(resultA.map((l: any) => l.action)).toContain('started')
 
-    expect(result).toHaveLength(2)
-    expect(result.every((l: any) => l.taskId === 'task-a')).toBe(true)
+    const resultB = await getTaskActivityHandler(ctx, { taskId: 'task-b' })
+    expect(resultB).toHaveLength(1)
+    expect(resultB[0].taskId).toBe('task-b')
+  })
+
+  it('getTaskActivity should return empty for task with no activity', async () => {
+    const { ctx } = makeMutableCtx()
+
+    await logActivityHandler(ctx, {
+      taskId: 'task-a', actor: 'forge', actorType: 'agent', action: 'created',
+    })
+
+    const result = await getTaskActivityHandler(ctx, { taskId: 'task-nonexistent' })
+    expect(result).toHaveLength(0)
   })
 
   it('getRecentActivity should return entries up to the limit', async () => {
@@ -260,5 +326,16 @@ describe('Activity Log - Query handlers', () => {
 
     const result = await getRecentActivityHandler(ctx, {})
     expect(result).toHaveLength(2)
+  })
+
+  it('getRecentActivity should return all entries when limit exceeds count', async () => {
+    const { ctx } = makeMutableCtx()
+
+    await logActivityHandler(ctx, {
+      taskId: 'task-1', actor: 'forge', actorType: 'agent', action: 'created',
+    })
+
+    const result = await getRecentActivityHandler(ctx, { limit: 100 })
+    expect(result).toHaveLength(1)
   })
 })
