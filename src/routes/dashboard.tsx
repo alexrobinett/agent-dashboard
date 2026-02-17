@@ -3,7 +3,7 @@ import { useQuery } from 'convex/react'
 import { convex } from '../lib/convex'
 import { api } from '../../convex/_generated/api'
 import { getPriorityColor } from '../lib/utils'
-import { Suspense, useEffect, useMemo, useRef } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useFilters } from '../hooks/useFilters'
 import { useSearch } from '../hooks/useSearch'
 import { FilterBar } from '../components/FilterBar'
@@ -125,6 +125,13 @@ function DashboardBoard({ tasks, workload }: { tasks: any; workload: WorkloadDat
   const statusOrder = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
   const { filters, setFilter, clearFilters, hasActiveFilters } = useFilters()
 
+  const handleAgentClick = useCallback(
+    (agent: string) => {
+      setFilter('agent', agent)
+    },
+    [setFilter],
+  )
+
   // Collect unique projects and agents from all tasks for dropdown options
   const { projects, agents } = useMemo(() => {
     const projectSet = new Set<string>()
@@ -195,7 +202,7 @@ function DashboardBoard({ tasks, workload }: { tasks: any; workload: WorkloadDat
           agents={agents}
         />
 
-        <WorkloadChart data={workload} />
+        <WorkloadChart data={workload} onAgentClick={handleAgentClick} />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {statusOrder.map((status) => {
