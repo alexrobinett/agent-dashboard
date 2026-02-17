@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from 'convex/react'
 import { convex } from '../lib/convex'
 import { api } from '../../convex/_generated/api'
+import { getPriorityColor } from '../lib/utils'
 import { Suspense, useEffect, useRef } from 'react'
 
 export const Route = createFileRoute('/dashboard')({
@@ -47,6 +48,15 @@ function DashboardPage() {
 }
 
 function DashboardComponent({ initialData }: { initialData: any }) {
+  // Avoid Convex React hooks during SSR; hydrate with loader data first.
+  if (typeof window === 'undefined') {
+    return <DashboardBoard tasks={initialData} />
+  }
+
+  return <DashboardLiveComponent initialData={initialData} />
+}
+
+function DashboardLiveComponent({ initialData }: { initialData: any }) {
   // Track SSR-to-subscription handoff timing
   const mountTimeRef = useRef<number>(Date.now())
   const ssrDataUsedRef = useRef<boolean>(false)
@@ -54,7 +64,13 @@ function DashboardComponent({ initialData }: { initialData: any }) {
   
   // Live subscription: Convex useQuery automatically subscribes via WebSocket
   // and keeps data in sync. Falls back to initialData during SSR hydration.
-  const tasks = useQuery(api.tasks.getByStatus, {}) ?? initialData
+  let liveTasks: any
+  try {
+    liveTasks = useQuery(api.tasks.getByStatus, {})
+  } catch {
+    liveTasks = undefined
+  }
+  const tasks = liveTasks ?? initialData
 
   // Log SSR hydration timing (runs once on mount)
   useEffect(() => {
@@ -89,15 +105,22 @@ function DashboardComponent({ initialData }: { initialData: any }) {
     }
   }, [tasks, initialData])
 
+  return <DashboardBoard tasks={tasks} />
+}
+
+function DashboardBoard({ tasks }: { tasks: any }) {
   const statusOrder = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
-  
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-4xl font-bold text-foreground">Task Dashboard</h1>
           <div className="text-sm text-muted-foreground">
-            <span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
+            <span 
+              data-testid="live-indicator"
+              className="inline-block w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"
+            ></span>
             Live
           </div>
         </div>
@@ -110,6 +133,7 @@ function DashboardComponent({ initialData }: { initialData: any }) {
             return (
               <div
                 key={status}
+                data-testid={`column-${status}`}
                 className="bg-card rounded-lg border border-border p-4 shadow-sm hover:shadow-md transition-shadow"
               >
                 <div className="flex items-center justify-between mb-4">
@@ -198,16 +222,3 @@ function DashboardErrorComponent({ error }: { error: Error }) {
   )
 }
 
-function getPriorityColor(priority?: string): string {
-  switch (priority?.toLowerCase()) {
-    case 'high':
-      return '#EF4444' // red
-    case 'normal':
-    case 'medium':
-      return '#F59E0B' // amber
-    case 'low':
-      return '#3B82F6' // blue
-    default:
-      return '#6B7280' // gray
-  }
-}

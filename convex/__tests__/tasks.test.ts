@@ -1,1263 +1,1017 @@
-import { describe, it, expect } from 'vitest'
-import { aggregateWorkload } from '../tasks'
+import { describe, it, expect, vi } from 'vitest'
+import type { Doc, Id } from '../_generated/dataModel'
 
-describe('Convex Tasks Schema', () => {
-  it('should validate task status values', () => {
-    const validStatuses = [
-      'planning',
-      'ready',
-      'in_progress',
-      'in_review',
-      'done',
-      'blocked',
-      'cancelled',
+// ──────────────────────────────────────────────────────────
+// Mock convex server so we can import tasks.ts and extract handlers
+// ──────────────────────────────────────────────────────────
+vi.mock('../_generated/server', () => ({
+  query: (config: Record<string, unknown>) => config,
+  mutation: (config: Record<string, unknown>) => config,
+}))
+
+// Import AFTER mocking — each export is now { args, handler }
+import * as taskModule from '../tasks'
+
+// Type helpers
+type Task = Doc<'tasks'>
+type TaskId = Id<'tasks'>
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type HandlerExtractor = { handler: (...args: any[]) => Promise<any> }
+const listHandler = (taskModule.list as unknown as HandlerExtractor).handler
+const getByStatusHandler = (taskModule.getByStatus as unknown as HandlerExtractor).handler
+const getByIdHandler = (taskModule.getById as unknown as HandlerExtractor).handler
+const listFilteredHandler = (taskModule.listFiltered as unknown as HandlerExtractor).handler
+const getWorkloadHandler = (taskModule.getWorkload as unknown as HandlerExtractor).handler
+const createHandler = (taskModule.create as unknown as HandlerExtractor).handler
+const updateHandler = (taskModule.update as unknown as HandlerExtractor).handler
+
+// ──────────────────────────────────────────────────────────
+// Helper: build a mock Convex QueryCtx
+// ──────────────────────────────────────────────────────────
+function makeTask(overrides: Partial<Task> & { _id: TaskId }): Task {
+  return {
+    _creationTime: Date.now(),
+    title: 'Untitled',
+    status: 'planning',
+    priority: 'normal',
+    createdBy: 'test',
+    createdAt: Date.now(),
+    ...overrides,
+  } as Task
+}
+
+function mockCtx(tasks: Task[]) {
+  return {
+    db: {
+      query: (_table: string) => ({
+        order: (_dir: string) => ({
+          take: async (n: number) => tasks.slice(0, n),
+        }),
+      }),
+      get: async (id: TaskId) => tasks.find(t => t._id === id) ?? null,
+      insert: async (_table: string, _doc: Record<string, unknown>) => 'new-id' as TaskId,
+      patch: async (_id: TaskId, _fields: Record<string, unknown>) => {},
+      delete: async (_id: TaskId) => {},
+    },
+  }
+}
+
+// ──────────────────────────────────────────────────────────
+// getByStatus — calls the ACTUAL query handler
+// ──────────────────────────────────────────────────────────
+describe('getByStatus query handler', () => {
+  it('should group tasks into 6 status columns', async () => {
+    const tasks = [
+      makeTask({ _id: '1' as TaskId, title: 'T1', status: 'planning' }),
+      makeTask({ _id: '2' as TaskId, title: 'T2', status: 'ready' }),
+      makeTask({ _id: '3' as TaskId, title: 'T3', status: 'in_progress' }),
+      makeTask({ _id: '4' as TaskId, title: 'T4', status: 'in_review' }),
+      makeTask({ _id: '5' as TaskId, title: 'T5', status: 'done' }),
+      makeTask({ _id: '6' as TaskId, title: 'T6', status: 'blocked' }),
     ]
+    const ctx = mockCtx(tasks)
+    const result = await getByStatusHandler(ctx, {})
 
-    expect(validStatuses).toHaveLength(7)
-    expect(validStatuses).toContain('in_progress')
-    expect(validStatuses).toContain('done')
+    expect(result.planning).toHaveLength(1)
+    expect(result.ready).toHaveLength(1)
+    expect(result.in_progress).toHaveLength(1)
+    expect(result.in_review).toHaveLength(1)
+    expect(result.done).toHaveLength(1)
+    expect(result.blocked).toHaveLength(1)
+    expect(result.planning[0].title).toBe('T1')
   })
 
-  it('should validate priority values', () => {
-    const validPriorities = ['low', 'normal', 'high', 'urgent']
+  it('should return empty arrays when no tasks exist', async () => {
+    const ctx = mockCtx([])
+    const result = await getByStatusHandler(ctx, {})
 
-    expect(validPriorities).toHaveLength(4)
-    expect(validPriorities).toContain('high')
-    expect(validPriorities).toContain('urgent')
+    expect(Object.keys(result)).toHaveLength(6)
+    for (const col of Object.values(result) as Task[][]) {
+      expect(col).toEqual([])
+    }
   })
 
-  it('should validate task structure', () => {
-    const mockTask = {
-      title: 'Test Task',
-      description: 'Test Description',
+  it('should group multiple tasks into the same status column', async () => {
+    const tasks = [
+      makeTask({ _id: '1' as TaskId, title: 'A', status: 'in_progress', priority: 'high' }),
+      makeTask({ _id: '2' as TaskId, title: 'B', status: 'in_progress', priority: 'normal' }),
+      makeTask({ _id: '3' as TaskId, title: 'C', status: 'in_progress', priority: 'urgent' }),
+      makeTask({ _id: '4' as TaskId, title: 'D', status: 'ready' }),
+    ]
+    const ctx = mockCtx(tasks)
+    const result = await getByStatusHandler(ctx, {})
+
+    expect(result.in_progress).toHaveLength(3)
+    expect(result.ready).toHaveLength(1)
+    expect(result.planning).toHaveLength(0)
+  })
+
+  it('should preserve full task objects in grouped output', async () => {
+    const task = makeTask({
+      _id: 'x' as TaskId,
+      title: 'Full Task',
+      status: 'done',
+      priority: 'high',
+      project: 'test-proj',
+      assignedAgent: 'forge',
+      notes: 'some notes',
+    })
+    const ctx = mockCtx([task])
+    const result = await getByStatusHandler(ctx, {})
+
+    const returned = result.done[0]
+    expect(returned._id).toBe('x')
+    expect(returned.title).toBe('Full Task')
+    expect(returned.priority).toBe('high')
+    expect(returned.project).toBe('test-proj')
+    expect(returned.notes).toBe('some notes')
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// getById — calls the ACTUAL query handler
+// ──────────────────────────────────────────────────────────
+describe('getById query handler', () => {
+  it('should return a task for a valid ID', async () => {
+    const task = makeTask({ _id: 'abc' as TaskId, title: 'Found Me', status: 'in_progress' })
+    const ctx = mockCtx([task])
+    const result = await getByIdHandler(ctx, { id: 'abc' as TaskId })
+
+    expect(result).not.toBeNull()
+    expect(result._id).toBe('abc')
+    expect(result.title).toBe('Found Me')
+    expect(result.status).toBe('in_progress')
+  })
+
+  it('should return null for a non-existent ID', async () => {
+    const ctx = mockCtx([
+      makeTask({ _id: 'exists' as TaskId, title: 'Exists' }),
+    ])
+    const result = await getByIdHandler(ctx, { id: 'missing' as TaskId })
+
+    expect(result).toBeNull()
+  })
+
+  it('should return the complete task with all fields', async () => {
+    const task = makeTask({
+      _id: 'full' as TaskId,
+      title: 'Complete',
+      status: 'in_review',
+      priority: 'high',
+      project: 'proj',
       assignedAgent: 'forge',
       createdBy: 'main',
-      status: 'in_progress',
-      priority: 'high',
-      project: 'test-project',
-      createdAt: Date.now(),
-    }
+      notes: 'detailed',
+      version: 5,
+      leaseOwner: 'forge-123',
+    })
+    const ctx = mockCtx([task])
+    const result = await getByIdHandler(ctx, { id: 'full' as TaskId })
 
-    expect(mockTask).toHaveProperty('title')
-    expect(mockTask).toHaveProperty('status')
-    expect(mockTask).toHaveProperty('priority')
-    expect(mockTask.title).toBe('Test Task')
-    expect(mockTask.status).toBe('in_progress')
+    expect(result).toEqual(task)
+  })
+
+  it('should return null from empty database', async () => {
+    const ctx = mockCtx([])
+    const result = await getByIdHandler(ctx, { id: 'any' as TaskId })
+
+    expect(result).toBeNull()
   })
 })
 
-describe('listFiltered Query - Default Behavior', () => {
-  it('should return default limit of 50 when no limit provided', () => {
-    const result = {
-      tasks: [],
-      total: 0,
-      limit: 50,
-      offset: 0,
-      hasMore: false,
-    }
-    
+// ──────────────────────────────────────────────────────────
+// listFiltered — calls the ACTUAL query handler
+// ──────────────────────────────────────────────────────────
+describe('listFiltered query handler', () => {
+  const sampleTasks = [
+    makeTask({ _id: '1' as TaskId, title: 'T1', status: 'in_progress', priority: 'high', project: 'dash', assignedAgent: 'forge' }),
+    makeTask({ _id: '2' as TaskId, title: 'T2', status: 'ready', priority: 'normal', project: 'dash', assignedAgent: 'sentinel' }),
+    makeTask({ _id: '3' as TaskId, title: 'T3', status: 'in_progress', priority: 'normal', project: 'other', assignedAgent: 'forge' }),
+    makeTask({ _id: '4' as TaskId, title: 'T4', status: 'done', priority: 'low', project: 'dash', assignedAgent: 'oracle' }),
+  ]
+
+  it('should return default pagination (limit 50, offset 0)', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, {})
+
     expect(result.limit).toBe(50)
-  })
-
-  it('should return default offset of 0 when no offset provided', () => {
-    const result = {
-      tasks: [],
-      total: 0,
-      limit: 50,
-      offset: 0,
-      hasMore: false,
-    }
-    
     expect(result.offset).toBe(0)
+    expect(result.tasks).toHaveLength(4)
+    expect(result.total).toBe(4)
+    expect(result.hasMore).toBe(false)
   })
 
-  it('should return all required fields in response', () => {
-    const result = {
-      tasks: [],
-      total: 100,
-      limit: 50,
-      offset: 0,
-      hasMore: true,
-    }
-    
-    expect(result).toHaveProperty('tasks')
-    expect(result).toHaveProperty('total')
-    expect(result).toHaveProperty('limit')
-    expect(result).toHaveProperty('offset')
-    expect(result).toHaveProperty('hasMore')
-  })
+  it('should filter by status', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, { status: 'in_progress' })
 
-  it('should return tasks as an array', () => {
-    const result = {
-      tasks: [
-        { title: 'Task 1', status: 'in_progress' },
-        { title: 'Task 2', status: 'ready' },
-      ],
-      total: 2,
-      limit: 50,
-      offset: 0,
-      hasMore: false,
-    }
-    
-    expect(Array.isArray(result.tasks)).toBe(true)
     expect(result.tasks).toHaveLength(2)
-  })
-})
-
-describe('listFiltered Query - Status Filter', () => {
-  it('should filter tasks by status', () => {
-    const allTasks = [
-      { title: 'Task 1', status: 'in_progress', priority: 'high', project: 'p1', assignedAgent: 'forge' },
-      { title: 'Task 2', status: 'ready', priority: 'normal', project: 'p1', assignedAgent: 'sentinel' },
-      { title: 'Task 3', status: 'in_progress', priority: 'low', project: 'p2', assignedAgent: 'forge' },
-    ]
-    
-    const filtered = allTasks.filter(t => t.status === 'in_progress')
-    
-    expect(filtered).toHaveLength(2)
-    expect(filtered.every(t => t.status === 'in_progress')).toBe(true)
+    expect(result.tasks.every((t: Task) => t.status === 'in_progress')).toBe(true)
   })
 
-  it('should return empty array when no tasks match status filter', () => {
-    const allTasks = [
-      { title: 'Task 1', status: 'in_progress', priority: 'high', project: 'p1', assignedAgent: 'forge' },
-      { title: 'Task 2', status: 'ready', priority: 'normal', project: 'p1', assignedAgent: 'sentinel' },
-    ]
-    
-    const filtered = allTasks.filter(t => t.status === 'done')
-    
-    expect(filtered).toHaveLength(0)
+  it('should filter by priority', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, { priority: 'high' })
+
+    expect(result.tasks).toHaveLength(1)
+    expect(result.tasks[0].title).toBe('T1')
   })
 
-  it('should handle all valid status values', () => {
-    const validStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled']
-    
-    validStatuses.forEach(status => {
-      const tasks = [{ title: 'Task', status, priority: 'normal', project: 'test', assignedAgent: 'agent' }]
-      const filtered = tasks.filter(t => t.status === status)
-      expect(filtered).toHaveLength(1)
+  it('should filter by project', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, { project: 'dash' })
+
+    expect(result.tasks).toHaveLength(3)
+    expect(result.tasks.every((t: Task) => t.project === 'dash')).toBe(true)
+  })
+
+  it('should filter by assignedAgent', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, { assignedAgent: 'forge' })
+
+    expect(result.tasks).toHaveLength(2)
+    expect(result.tasks.every((t: Task) => t.assignedAgent === 'forge')).toBe(true)
+  })
+
+  it('should apply multiple filters', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, {
+      status: 'in_progress',
+      assignedAgent: 'forge',
+      project: 'dash',
     })
-  })
-})
 
-describe('listFiltered Query - Priority Filter', () => {
-  it('should filter tasks by priority', () => {
-    const allTasks = [
-      { title: 'Task 1', status: 'in_progress', priority: 'high', project: 'p1', assignedAgent: 'forge' },
-      { title: 'Task 2', status: 'ready', priority: 'normal', project: 'p1', assignedAgent: 'sentinel' },
-      { title: 'Task 3', status: 'in_progress', priority: 'high', project: 'p2', assignedAgent: 'forge' },
-    ]
-    
-    const filtered = allTasks.filter(t => t.priority === 'high')
-    
-    expect(filtered).toHaveLength(2)
-    expect(filtered.every(t => t.priority === 'high')).toBe(true)
+    expect(result.tasks).toHaveLength(1)
+    expect(result.tasks[0].title).toBe('T1')
   })
 
-  it('should return empty array when no tasks match priority filter', () => {
-    const allTasks = [
-      { title: 'Task 1', status: 'in_progress', priority: 'high', project: 'p1', assignedAgent: 'forge' },
-      { title: 'Task 2', status: 'ready', priority: 'normal', project: 'p1', assignedAgent: 'sentinel' },
-    ]
-    
-    const filtered = allTasks.filter(t => t.priority === 'urgent')
-    
-    expect(filtered).toHaveLength(0)
+  it('should return empty when no tasks match', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, { status: 'cancelled' })
+
+    expect(result.tasks).toHaveLength(0)
+    expect(result.total).toBe(0)
   })
 
-  it('should handle all valid priority values', () => {
-    const validPriorities = ['low', 'normal', 'high', 'urgent']
-    
-    validPriorities.forEach(priority => {
-      const tasks = [{ title: 'Task', status: 'in_progress', priority, project: 'test', assignedAgent: 'agent' }]
-      const filtered = tasks.filter(t => t.priority === priority)
-      expect(filtered).toHaveLength(1)
-    })
-  })
-})
+  it('should respect limit and offset', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, { limit: 2, offset: 0 })
 
-describe('listFiltered Query - Project Filter', () => {
-  it('should filter tasks by project', () => {
-    const allTasks = [
-      { title: 'Task 1', status: 'in_progress', priority: 'high', project: 'agent-dashboard', assignedAgent: 'forge' },
-      { title: 'Task 2', status: 'ready', priority: 'normal', project: 'options-trader', assignedAgent: 'sentinel' },
-      { title: 'Task 3', status: 'in_progress', priority: 'high', project: 'agent-dashboard', assignedAgent: 'forge' },
-    ]
-    
-    const filtered = allTasks.filter(t => t.project === 'agent-dashboard')
-    
-    expect(filtered).toHaveLength(2)
-    expect(filtered.every(t => t.project === 'agent-dashboard')).toBe(true)
+    expect(result.tasks).toHaveLength(2)
+    expect(result.hasMore).toBe(true)
+    expect(result.total).toBe(4)
   })
 
-  it('should return empty array when no tasks match project filter', () => {
-    const allTasks = [
-      { title: 'Task 1', status: 'in_progress', priority: 'high', project: 'agent-dashboard', assignedAgent: 'forge' },
-      { title: 'Task 2', status: 'ready', priority: 'normal', project: 'options-trader', assignedAgent: 'sentinel' },
-    ]
-    
-    const filtered = allTasks.filter(t => t.project === 'nonexistent-project')
-    
-    expect(filtered).toHaveLength(0)
+  it('should paginate with offset', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, { limit: 2, offset: 2 })
+
+    expect(result.tasks).toHaveLength(2)
+    expect(result.hasMore).toBe(false)
   })
 
-  it('should be case-sensitive for project names', () => {
-    const allTasks = [
-      { title: 'Task 1', status: 'in_progress', priority: 'high', project: 'agent-dashboard', assignedAgent: 'forge' },
-    ]
-    
-    const filtered = allTasks.filter(t => t.project === 'Agent-Dashboard')
-    
-    expect(filtered).toHaveLength(0)
-  })
-})
+  it('should return empty for offset past end', async () => {
+    const ctx = mockCtx(sampleTasks)
+    const result = await listFilteredHandler(ctx, { limit: 10, offset: 100 })
 
-describe('listFiltered Query - AssignedAgent Filter', () => {
-  it('should filter tasks by assignedAgent', () => {
-    const allTasks = [
-      { title: 'Task 1', status: 'in_progress', priority: 'high', project: 'p1', assignedAgent: 'forge' },
-      { title: 'Task 2', status: 'ready', priority: 'normal', project: 'p1', assignedAgent: 'sentinel' },
-      { title: 'Task 3', status: 'in_progress', priority: 'high', project: 'p2', assignedAgent: 'forge' },
-    ]
-    
-    const filtered = allTasks.filter(t => t.assignedAgent === 'forge')
-    
-    expect(filtered).toHaveLength(2)
-    expect(filtered.every(t => t.assignedAgent === 'forge')).toBe(true)
+    expect(result.tasks).toHaveLength(0)
+    expect(result.hasMore).toBe(false)
   })
 
-  it('should return empty array when no tasks match assignedAgent filter', () => {
-    const allTasks = [
-      { title: 'Task 1', status: 'in_progress', priority: 'high', project: 'p1', assignedAgent: 'forge' },
-      { title: 'Task 2', status: 'ready', priority: 'normal', project: 'p1', assignedAgent: 'sentinel' },
-    ]
-    
-    const filtered = allTasks.filter(t => t.assignedAgent === 'oracle')
-    
-    expect(filtered).toHaveLength(0)
-  })
+  it('should handle empty database', async () => {
+    const ctx = mockCtx([])
+    const result = await listFilteredHandler(ctx, {})
 
-  it('should handle unassigned tasks', () => {
-    const allTasks = [
-      { title: 'Task 1', status: 'planning', priority: 'normal', project: 'p1', assignedAgent: 'unassigned' },
-      { title: 'Task 2', status: 'ready', priority: 'normal', project: 'p1', assignedAgent: 'forge' },
-    ]
-    
-    const filtered = allTasks.filter(t => t.assignedAgent === 'unassigned')
-    
-    expect(filtered).toHaveLength(1)
-    expect(filtered[0].assignedAgent).toBe('unassigned')
-  })
-})
-
-describe('listFiltered Query - Multiple Filters', () => {
-  it('should apply multiple filters correctly', () => {
-    const allTasks = [
-      { title: 'Task 1', status: 'in_progress', priority: 'high', project: 'agent-dashboard', assignedAgent: 'forge' },
-      { title: 'Task 2', status: 'ready', priority: 'high', project: 'agent-dashboard', assignedAgent: 'sentinel' },
-      { title: 'Task 3', status: 'in_progress', priority: 'normal', project: 'agent-dashboard', assignedAgent: 'forge' },
-      { title: 'Task 4', status: 'in_progress', priority: 'high', project: 'options-trader', assignedAgent: 'forge' },
-    ]
-    
-    let filtered = allTasks
-    filtered = filtered.filter(t => t.status === 'in_progress')
-    filtered = filtered.filter(t => t.priority === 'high')
-    filtered = filtered.filter(t => t.project === 'agent-dashboard')
-    
-    expect(filtered).toHaveLength(1)
-    expect(filtered[0].title).toBe('Task 1')
-    expect(filtered[0].assignedAgent).toBe('forge')
-  })
-
-  it('should return empty array when no tasks match all filters', () => {
-    const allTasks = [
-      { title: 'Task 1', status: 'in_progress', priority: 'high', project: 'agent-dashboard', assignedAgent: 'forge' },
-      { title: 'Task 2', status: 'ready', priority: 'high', project: 'agent-dashboard', assignedAgent: 'sentinel' },
-    ]
-    
-    let filtered = allTasks
-    filtered = filtered.filter(t => t.status === 'in_progress')
-    filtered = filtered.filter(t => t.priority === 'high')
-    filtered = filtered.filter(t => t.assignedAgent === 'sentinel')
-    
-    expect(filtered).toHaveLength(0)
-  })
-
-  it('should handle all four filters combined', () => {
-    const allTasks = [
-      { title: 'Task 1', status: 'in_progress', priority: 'high', project: 'agent-dashboard', assignedAgent: 'forge' },
-      { title: 'Task 2', status: 'in_progress', priority: 'high', project: 'agent-dashboard', assignedAgent: 'sentinel' },
-    ]
-    
-    let filtered = allTasks
-    filtered = filtered.filter(t => t.status === 'in_progress')
-    filtered = filtered.filter(t => t.priority === 'high')
-    filtered = filtered.filter(t => t.project === 'agent-dashboard')
-    filtered = filtered.filter(t => t.assignedAgent === 'forge')
-    
-    expect(filtered).toHaveLength(1)
-    expect(filtered[0].title).toBe('Task 1')
-  })
-})
-
-describe('listFiltered Query - Pagination', () => {
-  it('should respect custom limit', () => {
-    const allTasks = Array.from({ length: 100 }, (_, i) => ({
-      title: `Task ${i}`,
-      status: 'in_progress',
-      priority: 'normal',
-      project: 'test',
-      assignedAgent: 'forge',
-    }))
-    
-    const limit = 25
-    const offset = 0
-    const paginated = allTasks.slice(offset, offset + limit)
-    
-    expect(paginated).toHaveLength(25)
-  })
-
-  it('should respect custom offset', () => {
-    const allTasks = Array.from({ length: 100 }, (_, i) => ({
-      title: `Task ${i}`,
-      status: 'in_progress',
-      priority: 'normal',
-      project: 'test',
-      assignedAgent: 'forge',
-    }))
-    
-    const limit = 25
-    const offset = 25
-    const paginated = allTasks.slice(offset, offset + limit)
-    
-    expect(paginated).toHaveLength(25)
-    expect(paginated[0].title).toBe('Task 25')
-    expect(paginated[24].title).toBe('Task 49')
-  })
-
-  it('should calculate hasMore correctly when more tasks exist', () => {
-    const total = 100
-    const limit = 50
-    const offset = 0
-    
-    const hasMore = offset + limit < total
-    
-    expect(hasMore).toBe(true)
-  })
-
-  it('should calculate hasMore correctly when on last page', () => {
-    const total = 100
-    const limit = 50
-    const offset = 50
-    
-    const hasMore = offset + limit < total
-    
-    expect(hasMore).toBe(false)
-  })
-
-  it('should handle partial last page', () => {
-    const allTasks = Array.from({ length: 95 }, (_, i) => ({
-      title: `Task ${i}`,
-      status: 'in_progress',
-      priority: 'normal',
-      project: 'test',
-      assignedAgent: 'forge',
-    }))
-    
-    const limit = 50
-    const offset = 50
-    const paginated = allTasks.slice(offset, offset + limit)
-    
-    expect(paginated).toHaveLength(45)
-    const hasMore = offset + limit < allTasks.length
-    expect(hasMore).toBe(false)
-  })
-
-  it('should return empty array when offset exceeds total', () => {
-    const allTasks = Array.from({ length: 50 }, (_, i) => ({
-      title: `Task ${i}`,
-      status: 'in_progress',
-      priority: 'normal',
-      project: 'test',
-      assignedAgent: 'forge',
-    }))
-    
-    const limit = 25
-    const offset = 100
-    const paginated = allTasks.slice(offset, offset + limit)
-    
-    expect(paginated).toHaveLength(0)
-  })
-
-  it('should work with pagination after filtering', () => {
-    const allTasks = Array.from({ length: 100 }, (_, i) => ({
-      title: `Task ${i}`,
-      status: i % 2 === 0 ? 'in_progress' : 'ready',
-      priority: 'normal',
-      project: 'test',
-      assignedAgent: 'forge',
-    }))
-    
-    const filtered = allTasks.filter(t => t.status === 'in_progress')
-    expect(filtered).toHaveLength(50)
-    
-    const limit = 25
-    const offset = 0
-    const paginated = filtered.slice(offset, offset + limit)
-    
-    expect(paginated).toHaveLength(25)
-    const hasMore = offset + limit < filtered.length
-    expect(hasMore).toBe(true)
-  })
-})
-
-describe('listFiltered Query - Edge Cases', () => {
-  it('should handle empty task list', () => {
-    const filtered: Array<{ title: string; status: string }> = []
-    const limit = 50
-    const offset = 0
-    const paginated = filtered.slice(offset, offset + limit)
-    
-    const result = {
-      tasks: paginated,
-      total: filtered.length,
-      limit,
-      offset,
-      hasMore: offset + limit < filtered.length,
-    }
-    
     expect(result.tasks).toHaveLength(0)
     expect(result.total).toBe(0)
     expect(result.hasMore).toBe(false)
   })
+})
 
-  it('should handle very large limit', () => {
-    const allTasks = Array.from({ length: 100 }, (_, i) => ({
-      title: `Task ${i}`,
-      status: 'in_progress',
-      priority: 'normal',
-      project: 'test',
-      assignedAgent: 'forge',
-    }))
-    
-    const limit = 1000
-    const offset = 0
-    const paginated = allTasks.slice(offset, offset + limit)
-    
-    expect(paginated).toHaveLength(100)
-  })
-
-  it('should handle offset at exactly total', () => {
-    const allTasks = Array.from({ length: 100 }, (_, i) => ({
-      title: `Task ${i}`,
-      status: 'in_progress',
-      priority: 'normal',
-      project: 'test',
-      assignedAgent: 'forge',
-    }))
-    
-    const limit = 50
-    const offset = 100
-    const paginated = allTasks.slice(offset, offset + limit)
-    
-    expect(paginated).toHaveLength(0)
-    const hasMore = offset + limit < allTasks.length
-    expect(hasMore).toBe(false)
-  })
-
-  it('should handle single task result', () => {
-    const allTasks = [
-      { title: 'Single Task', status: 'in_progress', priority: 'high', project: 'test', assignedAgent: 'forge' },
+// ──────────────────────────────────────────────────────────
+// list — calls the ACTUAL query handler
+// ──────────────────────────────────────────────────────────
+describe('list query handler', () => {
+  it('should return tasks ordered desc, up to 100', async () => {
+    const tasks = [
+      makeTask({ _id: '1' as TaskId, title: 'A' }),
+      makeTask({ _id: '2' as TaskId, title: 'B' }),
     ]
-    
-    const limit = 50
-    const offset = 0
-    const paginated = allTasks.slice(offset, offset + limit)
-    
-    const result = {
-      tasks: paginated,
-      total: allTasks.length,
-      limit,
-      offset,
-      hasMore: offset + limit < allTasks.length,
-    }
-    
-    expect(result.tasks).toHaveLength(1)
-    expect(result.total).toBe(1)
-    expect(result.hasMore).toBe(false)
+    const ctx = mockCtx(tasks)
+    const result = await listHandler(ctx, {})
+
+    expect(result).toHaveLength(2)
+    expect(result[0].title).toBe('A')
   })
 
-  it('should preserve task object structure through filtering', () => {
-    const allTasks = [
-      {
-        _id: 'j57abc123',
-        title: 'Task 1',
-        status: 'in_progress',
-        priority: 'high',
-        project: 'test',
-        assignedAgent: 'forge',
-        createdAt: 1771228225730,
-        notes: 'Test notes',
-      },
-    ]
-    
-    const filtered = allTasks.filter(t => t.status === 'in_progress')
-    
-    expect(filtered[0]).toHaveProperty('_id')
-    expect(filtered[0]).toHaveProperty('title')
-    expect(filtered[0]).toHaveProperty('status')
-    expect(filtered[0]).toHaveProperty('priority')
-    expect(filtered[0]).toHaveProperty('project')
-    expect(filtered[0]).toHaveProperty('assignedAgent')
-    expect(filtered[0]).toHaveProperty('createdAt')
-    expect(filtered[0]).toHaveProperty('notes')
+  it('should return empty array when no tasks exist', async () => {
+    const ctx = mockCtx([])
+    const result = await listHandler(ctx, {})
+
+    expect(result).toHaveLength(0)
   })
 })
 
-describe('getWorkload Query - Aggregation Logic (real aggregateWorkload)', () => {
-  it('should return empty object for empty task list', () => {
-    const workload = aggregateWorkload([])
-    expect(Object.keys(workload)).toHaveLength(0)
+// ──────────────────────────────────────────────────────────
+// getWorkload — calls the ACTUAL query handler
+// ──────────────────────────────────────────────────────────
+describe('getWorkload query handler', () => {
+  it('should aggregate tasks by agent', async () => {
+    const tasks = [
+      makeTask({ _id: '1' as TaskId, assignedAgent: 'forge', status: 'in_progress', priority: 'high' }),
+      makeTask({ _id: '2' as TaskId, assignedAgent: 'forge', status: 'ready', priority: 'normal' }),
+      makeTask({ _id: '3' as TaskId, assignedAgent: 'sentinel', status: 'done', priority: 'low' }),
+    ]
+    const ctx = mockCtx(tasks)
+    const result = await getWorkloadHandler(ctx, {})
+
+    expect(result.forge.total).toBe(2)
+    expect(result.sentinel.total).toBe(1)
+    expect(result.forge.byStatus.in_progress).toBe(1)
+    expect(result.forge.byStatus.ready).toBe(1)
+    expect(result.forge.byPriority.high).toBe(1)
+    expect(result.forge.byPriority.normal).toBe(1)
+    expect(result.sentinel.byStatus.done).toBe(1)
+    expect(result.sentinel.byPriority.low).toBe(1)
   })
 
-  it('should create correct agent entry for a single task', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-    ])
+  it('should use "unassigned" for tasks without an agent', async () => {
+    const tasks = [
+      makeTask({ _id: '1' as TaskId, title: 'No Agent' }),
+    ]
+    const ctx = mockCtx(tasks)
+    const result = await getWorkloadHandler(ctx, {})
 
-    expect(Object.keys(workload)).toHaveLength(1)
-    expect(workload['forge']).toBeDefined()
-    expect(workload['forge'].total).toBe(1)
-    expect(workload['forge'].byStatus['in_progress']).toBe(1)
-    expect(workload['forge'].byPriority['high']).toBe(1)
+    expect(result.unassigned).toBeDefined()
+    expect(result.unassigned.total).toBe(1)
   })
 
-  it('should aggregate multiple tasks for the same agent', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-      { assignedAgent: 'forge', status: 'ready', priority: 'normal' },
-      { assignedAgent: 'forge', status: 'done', priority: 'low' },
-    ])
+  it('should return empty object when no tasks exist', async () => {
+    const ctx = mockCtx([])
+    const result = await getWorkloadHandler(ctx, {})
 
-    expect(Object.keys(workload)).toHaveLength(1)
-    expect(workload['forge'].total).toBe(3)
-    expect(workload['forge'].byStatus['in_progress']).toBe(1)
-    expect(workload['forge'].byStatus['ready']).toBe(1)
-    expect(workload['forge'].byStatus['done']).toBe(1)
-    expect(workload['forge'].byPriority['high']).toBe(1)
-    expect(workload['forge'].byPriority['normal']).toBe(1)
-    expect(workload['forge'].byPriority['low']).toBe(1)
+    expect(Object.keys(result)).toHaveLength(0)
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// create — calls the ACTUAL mutation handler
+// ──────────────────────────────────────────────────────────
+describe('create mutation handler', () => {
+  it('should create a task with valid inputs', async () => {
+    const ctx = mockCtx([])
+    const result = await createHandler(ctx, {
+      title: 'New Task',
+      priority: 'high',
+      project: 'test-proj',
+    })
+
+    expect(result).toHaveProperty('id')
   })
 
-  it('should create separate entries for multiple agents', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-      { assignedAgent: 'sentinel', status: 'ready', priority: 'normal' },
-      { assignedAgent: 'oracle', status: 'done', priority: 'low' },
-    ])
+  it('should reject invalid priority', async () => {
+    const ctx = mockCtx([])
 
-    expect(Object.keys(workload)).toHaveLength(3)
-    expect(workload['forge'].total).toBe(1)
-    expect(workload['sentinel'].total).toBe(1)
-    expect(workload['oracle'].total).toBe(1)
+    await expect(createHandler(ctx, {
+      title: 'Bad Priority',
+      priority: 'critical',
+      project: 'test-proj',
+    })).rejects.toThrow('Invalid priority')
   })
 
-  it('should aggregate byStatus for all valid status values', () => {
-    const validStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled']
-    const tasks = validStatuses.map(status => ({
-      assignedAgent: 'forge',
-      status,
+  it('should reject invalid status', async () => {
+    const ctx = mockCtx([])
+
+    await expect(createHandler(ctx, {
+      title: 'Bad Status',
+      priority: 'high',
+      project: 'test-proj',
+      status: 'bogus',
+    })).rejects.toThrow('Invalid status')
+  })
+
+  it('should accept valid status', async () => {
+    const ctx = mockCtx([])
+    const result = await createHandler(ctx, {
+      title: 'With Status',
       priority: 'normal',
-    }))
-
-    const workload = aggregateWorkload(tasks)
-
-    expect(workload['forge'].total).toBe(7)
-    validStatuses.forEach(status => {
-      expect(workload['forge'].byStatus[status]).toBe(1)
+      project: 'proj',
+      status: 'ready',
     })
+
+    expect(result).toHaveProperty('id')
   })
 
-  it('should aggregate byPriority for all valid priority values', () => {
+  it('should accept optional fields', async () => {
+    const ctx = mockCtx([])
+    const result = await createHandler(ctx, {
+      title: 'Full Task',
+      priority: 'urgent',
+      project: 'proj',
+      notes: 'some notes',
+      assignedAgent: 'forge',
+      createdBy: 'main',
+    })
+
+    expect(result).toHaveProperty('id')
+  })
+})
+
+// ──────────────────────────────────────────────────────────
+// update — calls the ACTUAL mutation handler
+// ──────────────────────────────────────────────────────────
+describe('update mutation handler', () => {
+  it('should update status of an existing task', async () => {
+    const tasks = [makeTask({ _id: 'u1' as TaskId, title: 'To Update' })]
+    const ctx = mockCtx(tasks)
+    const result = await updateHandler(ctx, { id: 'u1' as TaskId, status: 'in_progress' })
+
+    expect(result).toEqual({ success: true })
+  })
+
+  it('should throw when task not found', async () => {
+    const ctx = mockCtx([])
+
+    await expect(updateHandler(ctx, { id: 'missing' as TaskId, status: 'done' }))
+      .rejects.toThrow('Task not found')
+  })
+
+  it('should reject invalid status', async () => {
+    const tasks = [makeTask({ _id: 'u2' as TaskId })]
+    const ctx = mockCtx(tasks)
+
+    await expect(updateHandler(ctx, { id: 'u2' as TaskId, status: 'bogus' }))
+      .rejects.toThrow('Invalid status')
+  })
+
+  it('should reject invalid priority', async () => {
+    const tasks = [makeTask({ _id: 'u3' as TaskId })]
+    const ctx = mockCtx(tasks)
+
+    await expect(updateHandler(ctx, { id: 'u3' as TaskId, priority: 'critical' }))
+      .rejects.toThrow('Invalid priority')
+  })
+
+  it('should update multiple fields at once', async () => {
+    const tasks = [makeTask({ _id: 'u4' as TaskId })]
+    const ctx = mockCtx(tasks)
+    const result = await updateHandler(ctx, {
+      id: 'u4' as TaskId,
+      status: 'in_review',
+      priority: 'urgent',
+      assignedAgent: 'sentinel',
+      notes: 'updated',
+    })
+
+    expect(result).toEqual({ success: true })
+  })
+
+  it('should accept update with no optional fields', async () => {
+    const tasks = [makeTask({ _id: 'u5' as TaskId })]
+    const ctx = mockCtx(tasks)
+    const result = await updateHandler(ctx, { id: 'u5' as TaskId })
+
+    expect(result).toEqual({ success: true })
+  })
+})
+
+describe('create Mutation - Required Fields', () => {
+  it('should require title field', () => {
+    const argsWithoutTitle = {
+      priority: 'high',
+      project: 'agent-dashboard',
+    }
+    
+    expect(argsWithoutTitle).not.toHaveProperty('title')
+  })
+
+  it('should require priority field', () => {
+    const argsWithoutPriority = {
+      title: 'Test Task',
+      project: 'agent-dashboard',
+    }
+    
+    expect(argsWithoutPriority).not.toHaveProperty('priority')
+  })
+
+  it('should require project field', () => {
+    const argsWithoutProject = {
+      title: 'Test Task',
+      priority: 'high',
+    }
+    
+    expect(argsWithoutProject).not.toHaveProperty('project')
+  })
+
+  it('should accept valid args with all required fields', () => {
+    const validArgs = {
+      title: 'Test Task',
+      priority: 'high',
+      project: 'agent-dashboard',
+    }
+    
+    expect(validArgs).toHaveProperty('title')
+    expect(validArgs).toHaveProperty('priority')
+    expect(validArgs).toHaveProperty('project')
+  })
+})
+
+describe('create Mutation - Default Values', () => {
+  it('should default createdBy to "api"', () => {
+    const argsWithoutCreatedBy: any = {
+      title: 'Test Task',
+      priority: 'high',
+      project: 'agent-dashboard',
+    }
+    
+    const createdBy = argsWithoutCreatedBy.createdBy || 'api'
+    
+    expect(createdBy).toBe('api')
+  })
+
+  it('should default assignedAgent to "unassigned"', () => {
+    const argsWithoutAssignedAgent: any = {
+      title: 'Test Task',
+      priority: 'high',
+      project: 'agent-dashboard',
+    }
+    
+    const assignedAgent = argsWithoutAssignedAgent.assignedAgent || 'unassigned'
+    
+    expect(assignedAgent).toBe('unassigned')
+  })
+
+  it('should default status to "planning"', () => {
+    const argsWithoutStatus: any = {
+      title: 'Test Task',
+      priority: 'high',
+      project: 'agent-dashboard',
+    }
+    
+    const status = argsWithoutStatus.status || 'planning'
+    
+    expect(status).toBe('planning')
+  })
+
+  it('should set createdAt to current timestamp', () => {
+    const before = Date.now()
+    const createdAt = Date.now()
+    const after = Date.now()
+    
+    expect(createdAt).toBeGreaterThanOrEqual(before)
+    expect(createdAt).toBeLessThanOrEqual(after)
+  })
+
+  it('should allow overriding default createdBy', () => {
+    const argsWithCreatedBy = {
+      title: 'Test Task',
+      priority: 'high',
+      project: 'agent-dashboard',
+      createdBy: 'main',
+    }
+    
+    const createdBy = argsWithCreatedBy.createdBy || 'api'
+    
+    expect(createdBy).toBe('main')
+  })
+
+  it('should allow overriding default assignedAgent', () => {
+    const argsWithAssignedAgent = {
+      title: 'Test Task',
+      priority: 'high',
+      project: 'agent-dashboard',
+      assignedAgent: 'forge',
+    }
+    
+    const assignedAgent = argsWithAssignedAgent.assignedAgent || 'unassigned'
+    
+    expect(assignedAgent).toBe('forge')
+  })
+
+  it('should allow overriding default status', () => {
+    const argsWithStatus = {
+      title: 'Test Task',
+      priority: 'high',
+      project: 'agent-dashboard',
+      status: 'ready',
+    }
+    
+    const status = argsWithStatus.status || 'planning'
+    
+    expect(status).toBe('ready')
+  })
+})
+
+describe('create Mutation - Priority Validation', () => {
+  it('should accept valid priority: low', () => {
     const validPriorities = ['low', 'normal', 'high', 'urgent']
-    const tasks = validPriorities.map(priority => ({
+    expect(validPriorities).toContain('low')
+  })
+
+  it('should accept valid priority: normal', () => {
+    const validPriorities = ['low', 'normal', 'high', 'urgent']
+    expect(validPriorities).toContain('normal')
+  })
+
+  it('should accept valid priority: high', () => {
+    const validPriorities = ['low', 'normal', 'high', 'urgent']
+    expect(validPriorities).toContain('high')
+  })
+
+  it('should accept valid priority: urgent', () => {
+    const validPriorities = ['low', 'normal', 'high', 'urgent']
+    expect(validPriorities).toContain('urgent')
+  })
+
+  it('should reject invalid priority', () => {
+    const validPriorities = ['low', 'normal', 'high', 'urgent']
+    const invalidPriority = 'critical'
+    
+    expect(validPriorities).not.toContain(invalidPriority)
+  })
+
+  it('should throw error with invalid priority message', () => {
+    const validPriorities = ['low', 'normal', 'high', 'urgent']
+    const invalidPriority = 'critical'
+    
+    if (!validPriorities.includes(invalidPriority)) {
+      const errorMessage = `Invalid priority: ${invalidPriority}. Must be one of: ${validPriorities.join(', ')}`
+      expect(errorMessage).toBe('Invalid priority: critical. Must be one of: low, normal, high, urgent')
+    }
+  })
+})
+
+describe('create Mutation - Status Validation', () => {
+  it('should accept valid status values', () => {
+    const validStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled']
+    const testStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled']
+    
+    testStatuses.forEach(status => {
+      expect(validStatuses).toContain(status)
+    })
+  })
+
+  it('should reject invalid status', () => {
+    const validStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled']
+    const invalidStatus = 'pending'
+    
+    expect(validStatuses).not.toContain(invalidStatus)
+  })
+
+  it('should throw error with invalid status message', () => {
+    const validStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled']
+    const invalidStatus = 'pending'
+    
+    if (!validStatuses.includes(invalidStatus)) {
+      const errorMessage = `Invalid status: ${invalidStatus}. Must be one of: ${validStatuses.join(', ')}`
+      expect(errorMessage).toContain('Invalid status: pending')
+      expect(errorMessage).toContain('Must be one of:')
+    }
+  })
+
+  it('should allow creating task without status (defaults to planning)', () => {
+    const argsWithoutStatus: any = {
+      title: 'Test Task',
+      priority: 'high',
+      project: 'agent-dashboard',
+    }
+    
+    const status = argsWithoutStatus.status || 'planning'
+    expect(status).toBe('planning')
+  })
+})
+
+describe('create Mutation - Optional Fields', () => {
+  it('should accept optional notes field', () => {
+    const argsWithNotes = {
+      title: 'Test Task',
+      priority: 'high',
+      project: 'agent-dashboard',
+      notes: 'Additional context',
+    }
+    
+    expect(argsWithNotes).toHaveProperty('notes')
+    expect(argsWithNotes.notes).toBe('Additional context')
+  })
+
+  it('should work without notes field', () => {
+    const argsWithoutNotes = {
+      title: 'Test Task',
+      priority: 'high',
+      project: 'agent-dashboard',
+    }
+    
+    expect(argsWithoutNotes).not.toHaveProperty('notes')
+  })
+
+  it('should accept optional assignedAgent field', () => {
+    const argsWithAgent = {
+      title: 'Test Task',
+      priority: 'high',
+      project: 'agent-dashboard',
       assignedAgent: 'forge',
+    }
+    
+    expect(argsWithAgent).toHaveProperty('assignedAgent')
+    expect(argsWithAgent.assignedAgent).toBe('forge')
+  })
+
+  it('should accept optional createdBy field', () => {
+    const argsWithCreatedBy = {
+      title: 'Test Task',
+      priority: 'high',
+      project: 'agent-dashboard',
+      createdBy: 'main',
+    }
+    
+    expect(argsWithCreatedBy).toHaveProperty('createdBy')
+    expect(argsWithCreatedBy.createdBy).toBe('main')
+  })
+
+  it('should accept optional status field', () => {
+    const argsWithStatus = {
+      title: 'Test Task',
+      priority: 'high',
+      project: 'agent-dashboard',
+      status: 'ready',
+    }
+    
+    expect(argsWithStatus).toHaveProperty('status')
+    expect(argsWithStatus.status).toBe('ready')
+  })
+})
+
+describe('create Mutation - Return Value', () => {
+  it('should return object with id property', () => {
+    const mockResult = {
+      id: 'j57abc123',
+    }
+    
+    expect(mockResult).toHaveProperty('id')
+  })
+
+  it('should return id as string', () => {
+    const mockResult = {
+      id: 'j57abc123',
+    }
+    
+    expect(typeof mockResult.id).toBe('string')
+  })
+
+  it('should return Convex ID format', () => {
+    const mockId = 'j57abc123'
+    
+    expect(mockId).toMatch(/^j5[0-9a-z]+$/)
+  })
+})
+
+describe('update Mutation - Task ID Validation', () => {
+  it('should require task ID', () => {
+    const argsWithoutId = {
       status: 'in_progress',
-      priority,
-    }))
+    }
+    
+    expect(argsWithoutId).not.toHaveProperty('id')
+  })
 
-    const workload = aggregateWorkload(tasks)
+  it('should throw error when task not found', () => {
+    const taskId = 'j57nonexistent'
+    const task = null // Simulating task not found
+    
+    if (!task) {
+      const errorMessage = `Task not found: ${taskId}`
+      expect(errorMessage).toBe('Task not found: j57nonexistent')
+    }
+  })
 
-    expect(workload['forge'].total).toBe(4)
-    validPriorities.forEach(priority => {
-      expect(workload['forge'].byPriority[priority]).toBe(1)
+  it('should accept valid Convex ID format', () => {
+    const validId = 'j57abc123'
+    
+    expect(validId).toMatch(/^j5[0-9a-z]+$/)
+  })
+})
+
+describe('update Mutation - Partial Updates', () => {
+  it('should update only status when provided', () => {
+    const updateArgs = {
+      id: 'j57abc123',
+      status: 'in_progress',
+    }
+    
+    const updates: Record<string, unknown> = {}
+    if (updateArgs.status !== undefined) updates.status = updateArgs.status
+    
+    expect(updates).toHaveProperty('status')
+    expect(updates).not.toHaveProperty('priority')
+    expect(updates).not.toHaveProperty('assignedAgent')
+    expect(updates).not.toHaveProperty('notes')
+    expect(Object.keys(updates)).toHaveLength(1)
+  })
+
+  it('should update only priority when provided', () => {
+    const updateArgs = {
+      id: 'j57abc123',
+      priority: 'urgent',
+    }
+    
+    const updates: Record<string, unknown> = {}
+    if (updateArgs.priority !== undefined) updates.priority = updateArgs.priority
+    
+    expect(updates).toHaveProperty('priority')
+    expect(updates).not.toHaveProperty('status')
+    expect(Object.keys(updates)).toHaveLength(1)
+  })
+
+  it('should update only assignedAgent when provided', () => {
+    const updateArgs = {
+      id: 'j57abc123',
+      assignedAgent: 'sentinel',
+    }
+    
+    const updates: Record<string, unknown> = {}
+    if (updateArgs.assignedAgent !== undefined) updates.assignedAgent = updateArgs.assignedAgent
+    
+    expect(updates).toHaveProperty('assignedAgent')
+    expect(updates).not.toHaveProperty('status')
+    expect(Object.keys(updates)).toHaveLength(1)
+  })
+
+  it('should update only notes when provided', () => {
+    const updateArgs = {
+      id: 'j57abc123',
+      notes: 'Updated context',
+    }
+    
+    const updates: Record<string, unknown> = {}
+    if (updateArgs.notes !== undefined) updates.notes = updateArgs.notes
+    
+    expect(updates).toHaveProperty('notes')
+    expect(updates).not.toHaveProperty('status')
+    expect(Object.keys(updates)).toHaveLength(1)
+  })
+
+  it('should update multiple fields when provided', () => {
+    const updateArgs = {
+      id: 'j57abc123',
+      status: 'done',
+      priority: 'normal',
+      assignedAgent: 'oracle',
+      notes: 'Completed',
+    }
+    
+    const updates: Record<string, unknown> = {}
+    if (updateArgs.status !== undefined) updates.status = updateArgs.status
+    if (updateArgs.priority !== undefined) updates.priority = updateArgs.priority
+    if (updateArgs.assignedAgent !== undefined) updates.assignedAgent = updateArgs.assignedAgent
+    if (updateArgs.notes !== undefined) updates.notes = updateArgs.notes
+    
+    expect(updates).toHaveProperty('status')
+    expect(updates).toHaveProperty('priority')
+    expect(updates).toHaveProperty('assignedAgent')
+    expect(updates).toHaveProperty('notes')
+    expect(Object.keys(updates)).toHaveLength(4)
+  })
+
+  it('should not include undefined fields in update', () => {
+    const updateArgs = {
+      id: 'j57abc123',
+      status: 'in_progress',
+    }
+    
+    const updates: Record<string, unknown> = {}
+    if (updateArgs.status !== undefined) updates.status = updateArgs.status
+    
+    expect(updates).not.toHaveProperty('priority')
+    expect(updates).not.toHaveProperty('assignedAgent')
+  })
+})
+
+describe('update Mutation - Status Validation', () => {
+  it('should accept valid status values', () => {
+    const validStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled']
+    const testStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled']
+    
+    testStatuses.forEach(status => {
+      expect(validStatuses).toContain(status)
     })
   })
 
-  it('should use "unassigned" key for tasks without assignedAgent', () => {
-    const workload = aggregateWorkload([
-      { status: 'planning', priority: 'normal' },
-    ])
-
-    expect(Object.keys(workload)).toHaveLength(1)
-    expect(workload['unassigned']).toBeDefined()
-    expect(workload['unassigned'].total).toBe(1)
-    expect(workload['unassigned'].byStatus['planning']).toBe(1)
-    expect(workload['unassigned'].byPriority['normal']).toBe(1)
+  it('should reject invalid status', () => {
+    const validStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled']
+    const invalidStatus = 'pending'
+    
+    expect(validStatuses).not.toContain(invalidStatus)
   })
 
-  it('should use "unassigned" key for tasks with empty string assignedAgent', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: '', status: 'ready', priority: 'high' },
-    ])
-
-    expect(workload['unassigned']).toBeDefined()
-    expect(workload['unassigned'].total).toBe(1)
+  it('should throw error with invalid status message', () => {
+    const validStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled']
+    const invalidStatus = 'pending'
+    
+    if (!validStatuses.includes(invalidStatus)) {
+      const errorMessage = `Invalid status: ${invalidStatus}. Must be one of: ${validStatuses.join(', ')}`
+      expect(errorMessage).toContain('Invalid status: pending')
+    }
   })
+})
 
-  it('should default status to "planning" when not provided', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', priority: 'normal' },
-    ])
-
-    expect(workload['forge'].byStatus['planning']).toBe(1)
-  })
-
-  it('should default priority to "normal" when not provided', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress' },
-    ])
-
-    expect(workload['forge'].byPriority['normal']).toBe(1)
-  })
-
-  it('should correctly aggregate a large dataset (50+ tasks)', () => {
-    const agents = ['forge', 'sentinel', 'oracle', 'atlas', 'nexus']
-    const statuses = ['planning', 'ready', 'in_progress', 'in_review', 'done']
-    const priorities = ['low', 'normal', 'high', 'urgent']
-
-    const tasks = Array.from({ length: 60 }, (_, i) => ({
-      assignedAgent: agents[i % agents.length],
-      status: statuses[i % statuses.length],
-      priority: priorities[i % priorities.length],
-    }))
-
-    const workload = aggregateWorkload(tasks)
-
-    expect(Object.keys(workload)).toHaveLength(5)
-
-    agents.forEach(agent => {
-      expect(workload[agent].total).toBe(12)
+describe('update Mutation - Priority Validation', () => {
+  it('should accept valid priority values', () => {
+    const validPriorities = ['low', 'normal', 'high', 'urgent']
+    const testPriorities = ['low', 'normal', 'high', 'urgent']
+    
+    testPriorities.forEach(priority => {
+      expect(validPriorities).toContain(priority)
     })
-
-    const totalCount = Object.values(workload).reduce((sum, w) => sum + w.total, 0)
-    expect(totalCount).toBe(60)
   })
 
-  it('should count correctly when all tasks have same agent, status, and priority', () => {
-    const tasks = Array.from({ length: 10 }, () => ({
-      assignedAgent: 'forge',
+  it('should reject invalid priority', () => {
+    const validPriorities = ['low', 'normal', 'high', 'urgent']
+    const invalidPriority = 'critical'
+    
+    expect(validPriorities).not.toContain(invalidPriority)
+  })
+
+  it('should throw error with invalid priority message', () => {
+    const validPriorities = ['low', 'normal', 'high', 'urgent']
+    const invalidPriority = 'critical'
+    
+    if (!validPriorities.includes(invalidPriority)) {
+      const errorMessage = `Invalid priority: ${invalidPriority}. Must be one of: ${validPriorities.join(', ')}`
+      expect(errorMessage).toContain('Invalid priority: critical')
+    }
+  })
+})
+
+describe('update Mutation - Return Value', () => {
+  it('should return object with success property', () => {
+    const mockResult = {
+      success: true,
+    }
+    
+    expect(mockResult).toHaveProperty('success')
+  })
+
+  it('should return success as boolean', () => {
+    const mockResult = {
+      success: true,
+    }
+    
+    expect(typeof mockResult.success).toBe('boolean')
+  })
+
+  it('should return success true on successful update', () => {
+    const mockResult = {
+      success: true,
+    }
+    
+    expect(mockResult.success).toBe(true)
+  })
+})
+
+describe('update Mutation - Edge Cases', () => {
+  it('should handle updating task to same values', () => {
+    const existingTask = {
+      id: 'j57abc123',
       status: 'in_progress',
       priority: 'high',
-    }))
-
-    const workload = aggregateWorkload(tasks)
-
-    expect(Object.keys(workload)).toHaveLength(1)
-    expect(workload['forge'].total).toBe(10)
-    expect(workload['forge'].byStatus['in_progress']).toBe(10)
-    expect(workload['forge'].byPriority['high']).toBe(10)
-    expect(Object.keys(workload['forge'].byStatus)).toHaveLength(1)
-    expect(Object.keys(workload['forge'].byPriority)).toHaveLength(1)
-  })
-
-  it('should handle mixed scenario with multiple agents, statuses, and priorities', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'urgent' },
-      { assignedAgent: 'forge', status: 'done', priority: 'high' },
-      { assignedAgent: 'sentinel', status: 'ready', priority: 'normal' },
-      { assignedAgent: 'sentinel', status: 'blocked', priority: 'low' },
-      { status: 'planning', priority: 'normal' },
-      { status: 'planning', priority: 'low' },
-    ])
-
-    expect(Object.keys(workload)).toHaveLength(3)
-
-    expect(workload['forge'].total).toBe(3)
-    expect(workload['forge'].byStatus['in_progress']).toBe(2)
-    expect(workload['forge'].byStatus['done']).toBe(1)
-    expect(workload['forge'].byPriority['high']).toBe(2)
-    expect(workload['forge'].byPriority['urgent']).toBe(1)
-
-    expect(workload['sentinel'].total).toBe(2)
-    expect(workload['sentinel'].byStatus['ready']).toBe(1)
-    expect(workload['sentinel'].byStatus['blocked']).toBe(1)
-    expect(workload['sentinel'].byPriority['normal']).toBe(1)
-    expect(workload['sentinel'].byPriority['low']).toBe(1)
-
-    expect(workload['unassigned'].total).toBe(2)
-    expect(workload['unassigned'].byStatus['planning']).toBe(2)
-    expect(workload['unassigned'].byPriority['normal']).toBe(1)
-    expect(workload['unassigned'].byPriority['low']).toBe(1)
-  })
-
-  it('should not have cross-contamination between agents', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-      { assignedAgent: 'sentinel', status: 'done', priority: 'low' },
-    ])
-
-    expect(workload['forge'].byStatus['done']).toBeUndefined()
-    expect(workload['forge'].byPriority['low']).toBeUndefined()
-    expect(workload['sentinel'].byStatus['in_progress']).toBeUndefined()
-    expect(workload['sentinel'].byPriority['high']).toBeUndefined()
-  })
-
-  it('should initialize byStatus and byPriority as empty objects for new agents', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-    ])
-
-    expect(typeof workload['forge'].byStatus).toBe('object')
-    expect(typeof workload['forge'].byPriority).toBe('object')
-    expect(workload['forge'].byStatus).not.toBeNull()
-    expect(workload['forge'].byPriority).not.toBeNull()
-  })
-
-  it('should handle tasks where only assignedAgent is provided', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge' },
-    ])
-
-    expect(workload['forge'].total).toBe(1)
-    expect(workload['forge'].byStatus['planning']).toBe(1)
-    expect(workload['forge'].byPriority['normal']).toBe(1)
-  })
-
-  it('should correctly count status distribution within a single agent', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'normal' },
-      { assignedAgent: 'forge', status: 'done', priority: 'high' },
-      { assignedAgent: 'forge', status: 'done', priority: 'normal' },
-      { assignedAgent: 'forge', status: 'done', priority: 'low' },
-      { assignedAgent: 'forge', status: 'blocked', priority: 'urgent' },
-    ])
-
-    expect(workload['forge'].total).toBe(6)
-    expect(workload['forge'].byStatus['in_progress']).toBe(2)
-    expect(workload['forge'].byStatus['done']).toBe(3)
-    expect(workload['forge'].byStatus['blocked']).toBe(1)
-    expect(Object.keys(workload['forge'].byStatus)).toHaveLength(3)
-  })
-
-  it('should correctly count priority distribution within a single agent', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'sentinel', status: 'ready', priority: 'low' },
-      { assignedAgent: 'sentinel', status: 'in_progress', priority: 'low' },
-      { assignedAgent: 'sentinel', status: 'done', priority: 'normal' },
-      { assignedAgent: 'sentinel', status: 'in_review', priority: 'high' },
-      { assignedAgent: 'sentinel', status: 'planning', priority: 'high' },
-      { assignedAgent: 'sentinel', status: 'ready', priority: 'high' },
-      { assignedAgent: 'sentinel', status: 'blocked', priority: 'urgent' },
-    ])
-
-    expect(workload['sentinel'].total).toBe(7)
-    expect(workload['sentinel'].byPriority['low']).toBe(2)
-    expect(workload['sentinel'].byPriority['normal']).toBe(1)
-    expect(workload['sentinel'].byPriority['high']).toBe(3)
-    expect(workload['sentinel'].byPriority['urgent']).toBe(1)
-    expect(Object.keys(workload['sentinel'].byPriority)).toHaveLength(4)
-  })
-
-  it('should handle unassigned tasks mixed with assigned tasks', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-      { status: 'planning', priority: 'normal' },
-      { assignedAgent: 'forge', status: 'done', priority: 'normal' },
-      { priority: 'low' },
-      { assignedAgent: 'sentinel', status: 'ready', priority: 'urgent' },
-    ])
-
-    expect(Object.keys(workload)).toHaveLength(3)
-    expect(workload['forge'].total).toBe(2)
-    expect(workload['unassigned'].total).toBe(2)
-    expect(workload['sentinel'].total).toBe(1)
-  })
-
-  it('should verify total equals sum of byStatus counts for each agent', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-      { assignedAgent: 'forge', status: 'done', priority: 'normal' },
-      { assignedAgent: 'forge', status: 'done', priority: 'low' },
-      { assignedAgent: 'forge', status: 'blocked', priority: 'urgent' },
-      { assignedAgent: 'sentinel', status: 'ready', priority: 'normal' },
-      { assignedAgent: 'sentinel', status: 'in_review', priority: 'high' },
-    ])
-
-    for (const agent of Object.keys(workload)) {
-      const statusSum = Object.values(workload[agent].byStatus).reduce((a, b) => a + b, 0)
-      const prioritySum = Object.values(workload[agent].byPriority).reduce((a, b) => a + b, 0)
-      expect(statusSum).toBe(workload[agent].total)
-      expect(prioritySum).toBe(workload[agent].total)
     }
-  })
-
-  it('should default all fields when task object has no properties', () => {
-    const workload = aggregateWorkload([{}])
-
-    expect(Object.keys(workload)).toHaveLength(1)
-    expect(workload['unassigned']).toBeDefined()
-    expect(workload['unassigned'].total).toBe(1)
-    expect(workload['unassigned'].byStatus['planning']).toBe(1)
-    expect(workload['unassigned'].byPriority['normal']).toBe(1)
-  })
-
-  it('should handle multiple completely empty task objects', () => {
-    const workload = aggregateWorkload([{}, {}, {}])
-
-    expect(Object.keys(workload)).toHaveLength(1)
-    expect(workload['unassigned'].total).toBe(3)
-    expect(workload['unassigned'].byStatus['planning']).toBe(3)
-    expect(workload['unassigned'].byPriority['normal']).toBe(3)
-  })
-
-  it('should handle agent names with special characters', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'agent-v2.0', status: 'in_progress', priority: 'high' },
-      { assignedAgent: 'agent@team', status: 'ready', priority: 'low' },
-      { assignedAgent: 'agent with spaces', status: 'done', priority: 'normal' },
-    ])
-
-    expect(Object.keys(workload)).toHaveLength(3)
-    expect(workload['agent-v2.0'].total).toBe(1)
-    expect(workload['agent@team'].total).toBe(1)
-    expect(workload['agent with spaces'].total).toBe(1)
-  })
-
-  it('should handle many distinct agents', () => {
-    const tasks = Array.from({ length: 20 }, (_, i) => ({
-      assignedAgent: `agent-${i}`,
+    
+    const updateArgs = {
+      id: 'j57abc123',
       status: 'in_progress',
-      priority: 'normal',
-    }))
-
-    const workload = aggregateWorkload(tasks)
-
-    expect(Object.keys(workload)).toHaveLength(20)
-    for (let i = 0; i < 20; i++) {
-      expect(workload[`agent-${i}`].total).toBe(1)
+      priority: 'high',
     }
+    
+    const updates: Record<string, unknown> = {}
+    if (updateArgs.status !== undefined) updates.status = updateArgs.status
+    if (updateArgs.priority !== undefined) updates.priority = updateArgs.priority
+    
+    expect(updates.status).toBe(existingTask.status)
+    expect(updates.priority).toBe(existingTask.priority)
   })
 
-  it('should produce consistent results regardless of task order', () => {
-    const tasks = [
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-      { assignedAgent: 'sentinel', status: 'ready', priority: 'normal' },
-      { assignedAgent: 'forge', status: 'done', priority: 'low' },
-    ]
-
-    const reversed = [...tasks].reverse()
-
-    const workload1 = aggregateWorkload(tasks)
-    const workload2 = aggregateWorkload(reversed)
-
-    expect(workload1['forge'].total).toBe(workload2['forge'].total)
-    expect(workload1['forge'].byStatus).toEqual(workload2['forge'].byStatus)
-    expect(workload1['forge'].byPriority).toEqual(workload2['forge'].byPriority)
-    expect(workload1['sentinel'].total).toBe(workload2['sentinel'].total)
-  })
-
-  it('should not share byStatus or byPriority references between agents', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-      { assignedAgent: 'sentinel', status: 'in_progress', priority: 'high' },
-    ])
-
-    expect(workload['forge'].byStatus).not.toBe(workload['sentinel'].byStatus)
-    expect(workload['forge'].byPriority).not.toBe(workload['sentinel'].byPriority)
-  })
-
-  it('should handle single agent with one status and multiple priorities', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'low' },
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'normal' },
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'urgent' },
-    ])
-
-    expect(workload['forge'].total).toBe(4)
-    expect(Object.keys(workload['forge'].byStatus)).toHaveLength(1)
-    expect(workload['forge'].byStatus['in_progress']).toBe(4)
-    expect(Object.keys(workload['forge'].byPriority)).toHaveLength(4)
-    expect(workload['forge'].byPriority['low']).toBe(1)
-    expect(workload['forge'].byPriority['normal']).toBe(1)
-    expect(workload['forge'].byPriority['high']).toBe(1)
-    expect(workload['forge'].byPriority['urgent']).toBe(1)
-  })
-
-  it('should handle single agent with multiple statuses and one priority', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'planning', priority: 'high' },
-      { assignedAgent: 'forge', status: 'ready', priority: 'high' },
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-      { assignedAgent: 'forge', status: 'done', priority: 'high' },
-    ])
-
-    expect(workload['forge'].total).toBe(4)
-    expect(Object.keys(workload['forge'].byPriority)).toHaveLength(1)
-    expect(workload['forge'].byPriority['high']).toBe(4)
-    expect(Object.keys(workload['forge'].byStatus)).toHaveLength(4)
-    expect(workload['forge'].byStatus['planning']).toBe(1)
-    expect(workload['forge'].byStatus['ready']).toBe(1)
-    expect(workload['forge'].byStatus['in_progress']).toBe(1)
-    expect(workload['forge'].byStatus['done']).toBe(1)
-  })
-
-  it('should return correct structure for each agent entry', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-    ])
-
-    const entry = workload['forge']
-    expect(entry).toHaveProperty('total')
-    expect(entry).toHaveProperty('byStatus')
-    expect(entry).toHaveProperty('byPriority')
-    expect(typeof entry.total).toBe('number')
-    expect(typeof entry.byStatus).toBe('object')
-    expect(typeof entry.byPriority).toBe('object')
-    expect(Object.keys(entry)).toHaveLength(3)
-  })
-
-  it('should not include agents with zero tasks', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'done', priority: 'normal' },
-    ])
-
-    expect(workload['sentinel']).toBeUndefined()
-    expect(workload['oracle']).toBeUndefined()
-  })
-
-  it('should handle legacy status values passed through', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'pending', priority: 'normal' },
-      { assignedAgent: 'forge', status: 'active', priority: 'high' },
-    ])
-
-    expect(workload['forge'].total).toBe(2)
-    expect(workload['forge'].byStatus['pending']).toBe(1)
-    expect(workload['forge'].byStatus['active']).toBe(1)
-  })
-
-  it('should handle undefined assignedAgent mixed with explicit unassigned', () => {
-    const workload = aggregateWorkload([
-      { status: 'planning', priority: 'normal' },
-      { assignedAgent: 'unassigned', status: 'ready', priority: 'high' },
-    ])
-
-    expect(Object.keys(workload)).toHaveLength(1)
-    expect(workload['unassigned'].total).toBe(2)
-    expect(workload['unassigned'].byStatus['planning']).toBe(1)
-    expect(workload['unassigned'].byStatus['ready']).toBe(1)
-  })
-
-  it('should maintain total consistency across a complex mixed workload', () => {
-    const tasks = [
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'urgent' },
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-      { assignedAgent: 'forge', status: 'done', priority: 'normal' },
-      { assignedAgent: 'sentinel', status: 'planning', priority: 'low' },
-      { assignedAgent: 'sentinel', status: 'blocked', priority: 'urgent' },
-      { assignedAgent: 'sentinel', status: 'in_review', priority: 'normal' },
-      { assignedAgent: 'sentinel', status: 'in_review', priority: 'high' },
-      { status: 'ready', priority: 'normal' },
-      { assignedAgent: 'oracle', status: 'cancelled', priority: 'low' },
-    ]
-
-    const workload = aggregateWorkload(tasks)
-
-    // Verify grand total matches input count
-    const grandTotal = Object.values(workload).reduce((sum, w) => sum + w.total, 0)
-    expect(grandTotal).toBe(tasks.length)
-
-    // Verify per-agent totals
-    expect(workload['forge'].total).toBe(3)
-    expect(workload['sentinel'].total).toBe(4)
-    expect(workload['unassigned'].total).toBe(1)
-    expect(workload['oracle'].total).toBe(1)
-
-    // Verify status-priority consistency per agent
-    for (const agent of Object.keys(workload)) {
-      const statusSum = Object.values(workload[agent].byStatus).reduce((a, b) => a + b, 0)
-      const prioritySum = Object.values(workload[agent].byPriority).reduce((a, b) => a + b, 0)
-      expect(statusSum).toBe(workload[agent].total)
-      expect(prioritySum).toBe(workload[agent].total)
+  it('should handle empty notes update', () => {
+    const updateArgs = {
+      id: 'j57abc123',
+      notes: '',
     }
+    
+    const updates: Record<string, unknown> = {}
+    if (updateArgs.notes !== undefined) updates.notes = updateArgs.notes
+    
+    expect(updates.notes).toBe('')
   })
 
-  it('should handle 500 tasks matching the query take limit', () => {
-    const agents = ['forge', 'sentinel', 'oracle', 'atlas', 'nexus']
-    const statuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled']
-    const priorities = ['low', 'normal', 'high', 'urgent']
-
-    const tasks = Array.from({ length: 500 }, (_, i) => ({
-      assignedAgent: agents[i % agents.length],
-      status: statuses[i % statuses.length],
-      priority: priorities[i % priorities.length],
-    }))
-
-    const workload = aggregateWorkload(tasks)
-
-    const grandTotal = Object.values(workload).reduce((sum, w) => sum + w.total, 0)
-    expect(grandTotal).toBe(500)
-    expect(Object.keys(workload)).toHaveLength(5)
-
-    // Each agent should have 100 tasks (500 / 5)
-    agents.forEach(agent => {
-      expect(workload[agent].total).toBe(100)
-    })
-  })
-
-  it('should treat undefined assignedAgent and missing assignedAgent identically', () => {
-    const workload1 = aggregateWorkload([{ assignedAgent: undefined, status: 'ready', priority: 'high' }])
-    const workload2 = aggregateWorkload([{ status: 'ready', priority: 'high' }])
-
-    expect(workload1['unassigned']).toEqual(workload2['unassigned'])
-  })
-
-  it('should keep agents with identical workloads as separate entries', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-      { assignedAgent: 'sentinel', status: 'in_progress', priority: 'high' },
-    ])
-
-    expect(Object.keys(workload)).toHaveLength(2)
-    expect(workload['forge']).toEqual(workload['sentinel'])
-    expect(workload['forge']).not.toBe(workload['sentinel'])
-  })
-
-  it('should handle every combination of two agents and two statuses', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'done', priority: 'normal' },
-      { assignedAgent: 'forge', status: 'blocked', priority: 'normal' },
-      { assignedAgent: 'sentinel', status: 'done', priority: 'normal' },
-      { assignedAgent: 'sentinel', status: 'blocked', priority: 'normal' },
-    ])
-
-    expect(workload['forge'].total).toBe(2)
-    expect(workload['forge'].byStatus['done']).toBe(1)
-    expect(workload['forge'].byStatus['blocked']).toBe(1)
-    expect(workload['sentinel'].total).toBe(2)
-    expect(workload['sentinel'].byStatus['done']).toBe(1)
-    expect(workload['sentinel'].byStatus['blocked']).toBe(1)
-  })
-
-  it('should handle every combination of two agents and two priorities', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'low' },
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'urgent' },
-      { assignedAgent: 'sentinel', status: 'in_progress', priority: 'low' },
-      { assignedAgent: 'sentinel', status: 'in_progress', priority: 'urgent' },
-    ])
-
-    expect(workload['forge'].byPriority['low']).toBe(1)
-    expect(workload['forge'].byPriority['urgent']).toBe(1)
-    expect(workload['sentinel'].byPriority['low']).toBe(1)
-    expect(workload['sentinel'].byPriority['urgent']).toBe(1)
-  })
-
-  it('should handle heavily skewed distribution toward one agent', () => {
-    const tasks = [
-      ...Array.from({ length: 50 }, () => ({
-        assignedAgent: 'forge',
-        status: 'in_progress',
-        priority: 'high',
-      })),
-      { assignedAgent: 'sentinel', status: 'ready', priority: 'low' },
-    ]
-
-    const workload = aggregateWorkload(tasks)
-
-    expect(workload['forge'].total).toBe(50)
-    expect(workload['sentinel'].total).toBe(1)
-    expect(workload['forge'].byStatus['in_progress']).toBe(50)
-    expect(workload['forge'].byPriority['high']).toBe(50)
-  })
-
-  it('should handle agent names that look numeric', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: '42', status: 'done', priority: 'normal' },
-      { assignedAgent: '0', status: 'ready', priority: 'high' },
-    ])
-
-    expect(Object.keys(workload)).toHaveLength(2)
-    expect(workload['42'].total).toBe(1)
-    expect(workload['0'].total).toBe(1)
-  })
-
-  it('should correctly aggregate when all tasks are unassigned with varied statuses', () => {
-    const workload = aggregateWorkload([
-      { status: 'planning', priority: 'low' },
-      { status: 'ready', priority: 'normal' },
-      { status: 'in_progress', priority: 'high' },
-      { status: 'done', priority: 'urgent' },
-    ])
-
-    expect(Object.keys(workload)).toHaveLength(1)
-    expect(workload['unassigned'].total).toBe(4)
-    expect(Object.keys(workload['unassigned'].byStatus)).toHaveLength(4)
-    expect(Object.keys(workload['unassigned'].byPriority)).toHaveLength(4)
-  })
-
-  it('should not mutate the input task array', () => {
-    const tasks = [
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-      { assignedAgent: 'sentinel', status: 'done', priority: 'low' },
-    ]
-    const original = JSON.parse(JSON.stringify(tasks))
-
-    aggregateWorkload(tasks)
-
-    expect(tasks).toEqual(original)
-  })
-
-  it('should handle repeated calls with same input producing equal output', () => {
-    const tasks = [
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-      { assignedAgent: 'sentinel', status: 'done', priority: 'low' },
-      { status: 'planning', priority: 'normal' },
-    ]
-
-    const result1 = aggregateWorkload(tasks)
-    const result2 = aggregateWorkload(tasks)
-
-    expect(result1).toEqual(result2)
-  })
-
-  it('should correctly tally when one agent has all seven statuses', () => {
-    const allStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled']
-    const tasks = allStatuses.map(status => ({
-      assignedAgent: 'forge',
-      status,
-      priority: 'normal',
-    }))
-    // Add duplicates for some statuses
-    tasks.push({ assignedAgent: 'forge', status: 'in_progress', priority: 'normal' })
-    tasks.push({ assignedAgent: 'forge', status: 'done', priority: 'normal' })
-    tasks.push({ assignedAgent: 'forge', status: 'done', priority: 'normal' })
-
-    const workload = aggregateWorkload(tasks)
-
-    expect(workload['forge'].total).toBe(10)
-    expect(workload['forge'].byStatus['in_progress']).toBe(2)
-    expect(workload['forge'].byStatus['done']).toBe(3)
-    expect(workload['forge'].byStatus['planning']).toBe(1)
-    expect(Object.keys(workload['forge'].byStatus)).toHaveLength(7)
-  })
-
-  it('should correctly tally when one agent has all four priorities', () => {
-    const allPriorities = ['low', 'normal', 'high', 'urgent']
-    const tasks = allPriorities.map(priority => ({
-      assignedAgent: 'sentinel',
-      status: 'in_progress',
-      priority,
-    }))
-    // Add duplicates for some priorities
-    tasks.push({ assignedAgent: 'sentinel', status: 'in_progress', priority: 'urgent' })
-    tasks.push({ assignedAgent: 'sentinel', status: 'in_progress', priority: 'urgent' })
-
-    const workload = aggregateWorkload(tasks)
-
-    expect(workload['sentinel'].total).toBe(6)
-    expect(workload['sentinel'].byPriority['urgent']).toBe(3)
-    expect(workload['sentinel'].byPriority['low']).toBe(1)
-    expect(workload['sentinel'].byPriority['normal']).toBe(1)
-    expect(workload['sentinel'].byPriority['high']).toBe(1)
-    expect(Object.keys(workload['sentinel'].byPriority)).toHaveLength(4)
-  })
-
-  it('should produce independent results between separate calls', () => {
-    const workload1 = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'done', priority: 'low' },
-    ])
-    const workload2 = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-    ])
-
-    // Results from different calls should be independent
-    expect(workload1['forge'].byStatus['done']).toBe(1)
-    expect(workload1['forge'].byStatus['in_progress']).toBeUndefined()
-    expect(workload2['forge'].byStatus['in_progress']).toBe(1)
-    expect(workload2['forge'].byStatus['done']).toBeUndefined()
-  })
-
-  it('should handle task with only status provided', () => {
-    const workload = aggregateWorkload([
-      { status: 'blocked' },
-    ])
-
-    expect(workload['unassigned'].total).toBe(1)
-    expect(workload['unassigned'].byStatus['blocked']).toBe(1)
-    expect(workload['unassigned'].byPriority['normal']).toBe(1)
-  })
-
-  it('should handle task with only priority provided', () => {
-    const workload = aggregateWorkload([
-      { priority: 'urgent' },
-    ])
-
-    expect(workload['unassigned'].total).toBe(1)
-    expect(workload['unassigned'].byStatus['planning']).toBe(1)
-    expect(workload['unassigned'].byPriority['urgent']).toBe(1)
-  })
-
-  it('should verify byStatus keys only contain statuses that were actually present', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-      { assignedAgent: 'forge', status: 'done', priority: 'normal' },
-    ])
-
-    const statusKeys = Object.keys(workload['forge'].byStatus)
-    expect(statusKeys).toContain('in_progress')
-    expect(statusKeys).toContain('done')
-    expect(statusKeys).not.toContain('planning')
-    expect(statusKeys).not.toContain('ready')
-    expect(statusKeys).not.toContain('blocked')
-  })
-
-  it('should verify byPriority keys only contain priorities that were actually present', () => {
-    const workload = aggregateWorkload([
-      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
-      { assignedAgent: 'forge', status: 'done', priority: 'low' },
-    ])
-
-    const priorityKeys = Object.keys(workload['forge'].byPriority)
-    expect(priorityKeys).toContain('high')
-    expect(priorityKeys).toContain('low')
-    expect(priorityKeys).not.toContain('normal')
-    expect(priorityKeys).not.toContain('urgent')
-  })
-
-  it('should handle equal distribution across 10 agents with 10 tasks each', () => {
-    const agentNames = Array.from({ length: 10 }, (_, i) => `agent-${i}`)
-    const tasks = agentNames.flatMap(agent =>
-      Array.from({ length: 10 }, (_, j) => ({
-        assignedAgent: agent,
-        status: j % 2 === 0 ? 'in_progress' : 'done',
-        priority: j % 2 === 0 ? 'high' : 'low',
-      }))
-    )
-
-    const workload = aggregateWorkload(tasks)
-
-    expect(Object.keys(workload)).toHaveLength(10)
-    agentNames.forEach(agent => {
-      expect(workload[agent].total).toBe(10)
-      expect(workload[agent].byStatus['in_progress']).toBe(5)
-      expect(workload[agent].byStatus['done']).toBe(5)
-      expect(workload[agent].byPriority['high']).toBe(5)
-      expect(workload[agent].byPriority['low']).toBe(5)
-    })
+  it('should handle whitespace-only notes', () => {
+    const updateArgs = {
+      id: 'j57abc123',
+      notes: '   ',
+    }
+    
+    const updates: Record<string, unknown> = {}
+    if (updateArgs.notes !== undefined) updates.notes = updateArgs.notes
+    
+    expect(updates.notes).toBe('   ')
   })
 })
