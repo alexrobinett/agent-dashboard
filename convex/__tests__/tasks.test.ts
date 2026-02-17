@@ -803,4 +803,196 @@ describe('getWorkload Query - Aggregation Logic (real aggregateWorkload)', () =>
       expect(prioritySum).toBe(workload[agent].total)
     }
   })
+
+  it('should default all fields when task object has no properties', () => {
+    const workload = aggregateWorkload([{}])
+
+    expect(Object.keys(workload)).toHaveLength(1)
+    expect(workload['unassigned']).toBeDefined()
+    expect(workload['unassigned'].total).toBe(1)
+    expect(workload['unassigned'].byStatus['planning']).toBe(1)
+    expect(workload['unassigned'].byPriority['normal']).toBe(1)
+  })
+
+  it('should handle multiple completely empty task objects', () => {
+    const workload = aggregateWorkload([{}, {}, {}])
+
+    expect(Object.keys(workload)).toHaveLength(1)
+    expect(workload['unassigned'].total).toBe(3)
+    expect(workload['unassigned'].byStatus['planning']).toBe(3)
+    expect(workload['unassigned'].byPriority['normal']).toBe(3)
+  })
+
+  it('should handle agent names with special characters', () => {
+    const workload = aggregateWorkload([
+      { assignedAgent: 'agent-v2.0', status: 'in_progress', priority: 'high' },
+      { assignedAgent: 'agent@team', status: 'ready', priority: 'low' },
+      { assignedAgent: 'agent with spaces', status: 'done', priority: 'normal' },
+    ])
+
+    expect(Object.keys(workload)).toHaveLength(3)
+    expect(workload['agent-v2.0'].total).toBe(1)
+    expect(workload['agent@team'].total).toBe(1)
+    expect(workload['agent with spaces'].total).toBe(1)
+  })
+
+  it('should handle many distinct agents', () => {
+    const tasks = Array.from({ length: 20 }, (_, i) => ({
+      assignedAgent: `agent-${i}`,
+      status: 'in_progress',
+      priority: 'normal',
+    }))
+
+    const workload = aggregateWorkload(tasks)
+
+    expect(Object.keys(workload)).toHaveLength(20)
+    for (let i = 0; i < 20; i++) {
+      expect(workload[`agent-${i}`].total).toBe(1)
+    }
+  })
+
+  it('should produce consistent results regardless of task order', () => {
+    const tasks = [
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
+      { assignedAgent: 'sentinel', status: 'ready', priority: 'normal' },
+      { assignedAgent: 'forge', status: 'done', priority: 'low' },
+    ]
+
+    const reversed = [...tasks].reverse()
+
+    const workload1 = aggregateWorkload(tasks)
+    const workload2 = aggregateWorkload(reversed)
+
+    expect(workload1['forge'].total).toBe(workload2['forge'].total)
+    expect(workload1['forge'].byStatus).toEqual(workload2['forge'].byStatus)
+    expect(workload1['forge'].byPriority).toEqual(workload2['forge'].byPriority)
+    expect(workload1['sentinel'].total).toBe(workload2['sentinel'].total)
+  })
+
+  it('should not share byStatus or byPriority references between agents', () => {
+    const workload = aggregateWorkload([
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
+      { assignedAgent: 'sentinel', status: 'in_progress', priority: 'high' },
+    ])
+
+    expect(workload['forge'].byStatus).not.toBe(workload['sentinel'].byStatus)
+    expect(workload['forge'].byPriority).not.toBe(workload['sentinel'].byPriority)
+  })
+
+  it('should handle single agent with one status and multiple priorities', () => {
+    const workload = aggregateWorkload([
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'low' },
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'normal' },
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'urgent' },
+    ])
+
+    expect(workload['forge'].total).toBe(4)
+    expect(Object.keys(workload['forge'].byStatus)).toHaveLength(1)
+    expect(workload['forge'].byStatus['in_progress']).toBe(4)
+    expect(Object.keys(workload['forge'].byPriority)).toHaveLength(4)
+    expect(workload['forge'].byPriority['low']).toBe(1)
+    expect(workload['forge'].byPriority['normal']).toBe(1)
+    expect(workload['forge'].byPriority['high']).toBe(1)
+    expect(workload['forge'].byPriority['urgent']).toBe(1)
+  })
+
+  it('should handle single agent with multiple statuses and one priority', () => {
+    const workload = aggregateWorkload([
+      { assignedAgent: 'forge', status: 'planning', priority: 'high' },
+      { assignedAgent: 'forge', status: 'ready', priority: 'high' },
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
+      { assignedAgent: 'forge', status: 'done', priority: 'high' },
+    ])
+
+    expect(workload['forge'].total).toBe(4)
+    expect(Object.keys(workload['forge'].byPriority)).toHaveLength(1)
+    expect(workload['forge'].byPriority['high']).toBe(4)
+    expect(Object.keys(workload['forge'].byStatus)).toHaveLength(4)
+    expect(workload['forge'].byStatus['planning']).toBe(1)
+    expect(workload['forge'].byStatus['ready']).toBe(1)
+    expect(workload['forge'].byStatus['in_progress']).toBe(1)
+    expect(workload['forge'].byStatus['done']).toBe(1)
+  })
+
+  it('should return correct structure for each agent entry', () => {
+    const workload = aggregateWorkload([
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
+    ])
+
+    const entry = workload['forge']
+    expect(entry).toHaveProperty('total')
+    expect(entry).toHaveProperty('byStatus')
+    expect(entry).toHaveProperty('byPriority')
+    expect(typeof entry.total).toBe('number')
+    expect(typeof entry.byStatus).toBe('object')
+    expect(typeof entry.byPriority).toBe('object')
+    expect(Object.keys(entry)).toHaveLength(3)
+  })
+
+  it('should not include agents with zero tasks', () => {
+    const workload = aggregateWorkload([
+      { assignedAgent: 'forge', status: 'done', priority: 'normal' },
+    ])
+
+    expect(workload['sentinel']).toBeUndefined()
+    expect(workload['oracle']).toBeUndefined()
+  })
+
+  it('should handle legacy status values passed through', () => {
+    const workload = aggregateWorkload([
+      { assignedAgent: 'forge', status: 'pending', priority: 'normal' },
+      { assignedAgent: 'forge', status: 'active', priority: 'high' },
+    ])
+
+    expect(workload['forge'].total).toBe(2)
+    expect(workload['forge'].byStatus['pending']).toBe(1)
+    expect(workload['forge'].byStatus['active']).toBe(1)
+  })
+
+  it('should handle undefined assignedAgent mixed with explicit unassigned', () => {
+    const workload = aggregateWorkload([
+      { status: 'planning', priority: 'normal' },
+      { assignedAgent: 'unassigned', status: 'ready', priority: 'high' },
+    ])
+
+    expect(Object.keys(workload)).toHaveLength(1)
+    expect(workload['unassigned'].total).toBe(2)
+    expect(workload['unassigned'].byStatus['planning']).toBe(1)
+    expect(workload['unassigned'].byStatus['ready']).toBe(1)
+  })
+
+  it('should maintain total consistency across a complex mixed workload', () => {
+    const tasks = [
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'urgent' },
+      { assignedAgent: 'forge', status: 'in_progress', priority: 'high' },
+      { assignedAgent: 'forge', status: 'done', priority: 'normal' },
+      { assignedAgent: 'sentinel', status: 'planning', priority: 'low' },
+      { assignedAgent: 'sentinel', status: 'blocked', priority: 'urgent' },
+      { assignedAgent: 'sentinel', status: 'in_review', priority: 'normal' },
+      { assignedAgent: 'sentinel', status: 'in_review', priority: 'high' },
+      { status: 'ready', priority: 'normal' },
+      { assignedAgent: 'oracle', status: 'cancelled', priority: 'low' },
+    ]
+
+    const workload = aggregateWorkload(tasks)
+
+    // Verify grand total matches input count
+    const grandTotal = Object.values(workload).reduce((sum, w) => sum + w.total, 0)
+    expect(grandTotal).toBe(tasks.length)
+
+    // Verify per-agent totals
+    expect(workload['forge'].total).toBe(3)
+    expect(workload['sentinel'].total).toBe(4)
+    expect(workload['unassigned'].total).toBe(1)
+    expect(workload['oracle'].total).toBe(1)
+
+    // Verify status-priority consistency per agent
+    for (const agent of Object.keys(workload)) {
+      const statusSum = Object.values(workload[agent].byStatus).reduce((a, b) => a + b, 0)
+      const prioritySum = Object.values(workload[agent].byPriority).reduce((a, b) => a + b, 0)
+      expect(statusSum).toBe(workload[agent].total)
+      expect(prioritySum).toBe(workload[agent].total)
+    }
+  })
 })
