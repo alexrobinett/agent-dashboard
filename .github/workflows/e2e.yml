@@ -87,7 +87,7 @@ jobs:
 
       - name: Run Playwright tests (PR smoke)
         if: github.event_name == 'pull_request'
-        run: pnpm exec playwright test e2e/tests/dashboard.spec.ts --project=desktop-chromium
+        run: pnpm exec playwright test e2e/tests/dashboard.spec.ts --project=desktop-chromium --retries=0
         env:
           CI: true
 
