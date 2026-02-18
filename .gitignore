@@ -28,3 +28,4 @@ e2e/screenshots/*.png
 
 # Vitest
 coverage/
+better-auth.db
