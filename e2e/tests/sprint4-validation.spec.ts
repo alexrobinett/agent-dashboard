@@ -325,7 +325,7 @@ test.describe('Sprint 4: Activity Log (4.4a-c)', () => {
     const timeline = page.locator('[data-testid="activity-timeline"]')
     await expect(timeline).toBeVisible()
 
-    const heading = timeline.getByText('Activity')
+    const heading = timeline.getByRole('heading', { name: 'Activity' })
     await expect(heading).toBeVisible()
   })
 
