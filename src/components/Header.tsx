@@ -1,10 +1,22 @@
 import { Link } from '@tanstack/react-router'
 
 import { useState } from 'react'
-import { Home, Menu, X } from 'lucide-react'
+import { Home, Menu, X, LogOut } from 'lucide-react'
+import { useSession, signOut } from '../lib/auth-client'
 
 export default function Header() {
   const [isOpen, setIsOpen] = useState(false)
+  const { data: session } = useSession()
+
+  const handleLogout = async () => {
+    await signOut({
+      fetchOptions: {
+        onSuccess: () => {
+          window.location.href = '/login'
+        },
+      },
+    })
+  }
 
   return (
     <>
@@ -16,7 +28,7 @@ export default function Header() {
         >
           <Menu size={24} />
         </button>
-        <h1 className="ml-4 text-xl font-semibold">
+        <h1 className="ml-4 text-xl font-semibold flex-1">
           <Link to="/">
             <img
               src="/tanstack-word-logo-white.svg"
@@ -25,6 +37,28 @@ export default function Header() {
             />
           </Link>
         </h1>
+
+        {session?.user && (
+          <div className="flex items-center gap-3">
+            {session.user.image && (
+              <img
+                src={session.user.image}
+                alt={session.user.name || 'User'}
+                className="w-8 h-8 rounded-full"
+              />
+            )}
+            <span className="text-sm text-gray-300 hidden sm:inline">
+              {session.user.name || session.user.email}
+            </span>
+            <button
+              onClick={handleLogout}
+              className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+              aria-label="Sign out"
+            >
+              <LogOut size={20} />
+            </button>
+          </div>
+        )}
       </header>
 
       <aside
@@ -61,6 +95,18 @@ export default function Header() {
 
           {/* Demo Links End */}
         </nav>
+
+        {session?.user && (
+          <div className="p-4 border-t border-gray-700">
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-800 transition-colors w-full text-left"
+            >
+              <LogOut size={20} />
+              <span className="font-medium">Sign Out</span>
+            </button>
+          </div>
+        )}
       </aside>
     </>
   )
