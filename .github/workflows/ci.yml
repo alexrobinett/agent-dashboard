@@ -58,6 +58,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       
       - name: Generate stub files for CI
+        env:
+          SKIP_ROUTE_TREE_STUB: "1"
         run: bash scripts/generate-stubs.sh
       
       - name: Run TypeScript type check

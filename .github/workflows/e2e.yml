@@ -147,3 +147,72 @@ jobs:
         if: always() && github.event_name == 'pull_request' && hashFiles('test-results/results.json') != ''
         with:
           report-file: test-results/results.json
+
+  # ---------------------------------------------------------------------------
+  # Visual regression — INFORMATIONAL (does not block PR merges)
+  # ---------------------------------------------------------------------------
+  # Failures here indicate visual drift from the stored baselines in
+  # e2e/snapshots/.  To update baselines, run `pnpm test:visual:update`
+  # locally, commit the new PNGs, and push.
+  #
+  # This job is intentionally marked continue-on-error: true so it never
+  # hard-fails a PR.  Review the uploaded diff artifacts to decide whether
+  # the drift is intentional (then update baselines) or a regression.
+  visual-regression:
+    name: Visual Regression (informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Never block merges — visual failures are a signal, not a gate
+    continue-on-error: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate local stubs
+        env:
+          SKIP_ROUTE_TREE_STUB: "1"
+        run: bash scripts/generate-stubs.sh
+
+      - name: Cache Playwright browsers
+        id: vr-playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-vr-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-vr-
+
+      - name: Install Playwright browsers
+        if: steps.vr-playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install chromium
+
+      - name: Run visual regression tests
+        run: pnpm test:visual --project=desktop-chromium --reporter=list,html,json
+        env:
+          CI: true
+          VITE_CONVEX_URL: ${{ env.VITE_CONVEX_URL }}
+
+      - name: Upload visual diff artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-regression-diffs
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 14
