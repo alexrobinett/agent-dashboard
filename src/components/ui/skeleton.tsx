@@ -9,6 +9,9 @@ function Skeleton({
 
   return (
     <div
+      role="status"
+      aria-busy="true"
+      aria-label="Loading"
       className={cn(
         "rounded-md bg-primary/10",
         // Only apply the pulse animation when the user hasn't opted out

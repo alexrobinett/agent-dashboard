@@ -5,6 +5,7 @@ import { ConvexProvider } from 'convex/react'
 import { Toaster } from 'sonner'
 
 import Header from '../components/Header'
+import { NetworkStatusBanner } from '../components/NetworkStatusBanner'
 import { convexReactClient } from '../lib/convex'
 
 import appCss from '../styles.css?url'
@@ -41,6 +42,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body className="dark">
         <ConvexProvider client={convexReactClient}>
+          <NetworkStatusBanner />
           <Header />
           {children}
           <TanStackDevtools

@@ -22,6 +22,9 @@ import { ShortcutHint } from '../components/ShortcutHint'
 import { KeyboardShortcutsOverlay } from '../components/KeyboardShortcutsOverlay'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
 import { getSession } from '../lib/auth-middleware'
+import { ErrorBoundary } from '../components/ErrorBoundary'
+import { EmptyState } from '../components/EmptyState'
+import { BoardSkeleton } from '../components/skeletons'
 
 type DashboardView = 'board' | 'workload'
 
@@ -57,7 +60,7 @@ export const Route = createFileRoute('/dashboard')({
       .catch(() => emptyBoard)
 
     const tasks = await Promise.race([tasksPromise, timeoutPromise])
-    
+
     return {
       tasks,
       loadedAt: Date.now(),
@@ -71,11 +74,13 @@ export const Route = createFileRoute('/dashboard')({
 function DashboardPage() {
   const loaderData = Route.useLoaderData()
   const search = Route.useSearch()
-  
+
   return (
-    <Suspense fallback={<DashboardPendingComponent />}>
-      <DashboardComponent initialData={loaderData.tasks} initialView={search.view ?? 'board'} />
-    </Suspense>
+    <ErrorBoundary title="Dashboard error">
+      <Suspense fallback={<BoardSkeleton />}>
+        <DashboardComponent initialData={loaderData.tasks} initialView={search.view ?? 'board'} />
+      </Suspense>
+    </ErrorBoundary>
   )
 }
 
@@ -112,7 +117,7 @@ function DashboardLiveComponent({
   const mountTimeRef = useRef<number>(Date.now())
   const ssrDataUsedRef = useRef<boolean>(false)
   const subscriptionActiveRef = useRef<boolean>(false)
-  
+
   // Live subscription: Convex useQuery automatically subscribes via WebSocket
   // and keeps data in sync. Falls back to initialData during SSR hydration.
   let liveTasks: any
@@ -148,13 +153,13 @@ function DashboardLiveComponent({
     const mountTime = mountTimeRef.current
     const hydrationTime = Date.now() - mountTime
     const isUsingSSRData = tasks === initialData
-    
+
     console.log('[SSR Handoff] Component mounted', {
       timestamp: new Date().toISOString(),
       hydrationTime: `${hydrationTime}ms`,
       usingSSRData: isUsingSSRData,
     })
-    
+
     ssrDataUsedRef.current = true
   }, [])
 
@@ -162,16 +167,16 @@ function DashboardLiveComponent({
   useEffect(() => {
     // If tasks changed from initialData, subscription is active
     const isLiveData = tasks !== initialData
-    
+
     if (isLiveData && !subscriptionActiveRef.current) {
       const handoffTime = Date.now() - mountTimeRef.current
-      
+
       console.log('[SSR Handoff] WebSocket subscription active', {
         timestamp: new Date().toISOString(),
         handoffTime: `${handoffTime}ms`,
         ssrDataWasUsed: ssrDataUsedRef.current,
       })
-      
+
       subscriptionActiveRef.current = true
     }
   }, [tasks, initialData])
@@ -310,6 +315,18 @@ function DashboardBoard({
     onGoToWorkload: () => setActiveView('workload'),
   })
 
+  // Check if all columns are empty after filtering
+  const totalFilteredTasks = useMemo(
+    () => Object.values(filteredTasks).reduce((sum, col) => sum + col.length, 0),
+    [filteredTasks],
+  )
+
+  // Check if the board has any tasks at all (pre-filter)
+  const totalTasks = useMemo(
+    () => statusOrder.reduce((sum, s) => sum + (tasks[s]?.length ?? 0), 0),
+    [tasks],
+  )
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto">
@@ -377,17 +394,27 @@ function DashboardBoard({
         />
 
         {activeView === 'workload' ? (
-          <div data-testid="workload-view-panel">
-            <WorkloadChart data={workload} onAgentClick={handleAgentClick} />
-          </div>
+          <ErrorBoundary title="Workload chart error" inline>
+            <div data-testid="workload-view-panel">
+              <WorkloadChart data={workload} onAgentClick={handleAgentClick} />
+            </div>
+          </ErrorBoundary>
+        ) : hasActiveFilters && totalFilteredTasks === 0 ? (
+          <EmptyState variant="no-results" />
+        ) : totalTasks === 0 && !hasActiveFilters ? (
+          <EmptyState variant="no-data" />
         ) : (
-          <div data-testid="board-view-panel">
-            <KanbanBoard tasks={filteredTasks} />
-          </div>
+          <ErrorBoundary title="Board error" inline>
+            <div data-testid="board-view-panel">
+              <KanbanBoard tasks={filteredTasks} />
+            </div>
+          </ErrorBoundary>
         )}
 
         <div className="mt-8">
-          <ActivityTimeline entries={activityEntries} />
+          <ErrorBoundary title="Activity timeline error" inline>
+            <ActivityTimeline entries={activityEntries} />
+          </ErrorBoundary>
         </div>
       </div>
 
@@ -430,17 +457,7 @@ function DashboardBoard({
 }
 
 function DashboardPendingComponent() {
-  const reducedMotion = useReducedMotion()
-  return (
-    <div className="min-h-screen bg-background flex items-center justify-center">
-      <div className="text-center">
-        <div
-          className={`inline-block h-8 w-8 rounded-full border-4 border-solid border-primary border-r-transparent mb-4${reducedMotion ? '' : ' animate-spin'}`}
-        ></div>
-        <p className="text-muted-foreground">Loading dashboard...</p>
-      </div>
-    </div>
-  )
+  return <BoardSkeleton />
 }
 
 function DashboardErrorComponent({ error }: { error: Error }) {
