@@ -1,5 +1,6 @@
 import { httpRouter, httpActionGeneric } from 'convex/server'
 import { api } from './_generated/api'
+import type { Id } from './_generated/dataModel'
 import { sendApnsPush } from './apns'
 
 const http = httpRouter()
@@ -30,9 +31,18 @@ async function requireAuth(
   const token = authHeader.slice(7)
   const apiKey = process.env.CONVEX_API_SECRET_KEY
 
-  // If no API key is configured, allow all requests (dev/open mode)
+  // If no API key is configured, deny all requests (fail-closed for safety)
   if (!apiKey) {
-    return null // No key configured — open access
+    return withCors(
+      new Response(
+        JSON.stringify({ error: 'Unauthorized: server not configured' }),
+        {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      ),
+      request.headers.get('Origin') || undefined
+    )
   }
 
   if (token !== apiKey) {
@@ -332,7 +342,7 @@ http.route({
     try {
       // Query single task
       const task = await ctx.runQuery(api.tasks.getById, {
-        id: taskId as never,
+        id: taskId as Id<"tasks">,
       })
       
       if (!task) {
@@ -499,7 +509,7 @@ http.route({
       
       // Update task
       const result = await ctx.runMutation(api.tasks.update, {
-        id: taskId as never,
+        id: taskId as Id<"tasks">,
         status: body.status,
         priority: body.priority,
         assignedAgent: body.assignedAgent,
