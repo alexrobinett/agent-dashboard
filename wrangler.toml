@@ -1,0 +1,9 @@
+name = "agent-dashboard"
+compatibility_date = "2026-02-18"
+
+[build]
+command = "pnpm install && pnpm build"
+cwd = "."
+
+# Output directory for TanStack Start / Nitro (Cloudflare Pages static assets)
+# Full output lives at .output; static client assets at .output/public
