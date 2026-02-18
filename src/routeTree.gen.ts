@@ -117,3 +117,4 @@ declare module '@tanstack/react-start' {
     ssr: true
     router: Awaited<ReturnType<typeof getRouter>>
   }
+}
