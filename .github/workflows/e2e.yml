@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 env:
-  VITE_CONVEX_URL: https://tacit-bulldog-295.convex.cloud
+  VITE_CONVEX_URL: https://curious-dolphin-134.convex.cloud
 
 jobs:
   e2e:

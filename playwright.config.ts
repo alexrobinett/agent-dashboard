@@ -81,7 +81,7 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
     env: {
-      VITE_CONVEX_URL: process.env.VITE_CONVEX_URL || 'https://tacit-bulldog-295.convex.cloud',
+      VITE_CONVEX_URL: process.env.VITE_CONVEX_URL || 'https://curious-dolphin-134.convex.cloud',
     },
   },
 })
