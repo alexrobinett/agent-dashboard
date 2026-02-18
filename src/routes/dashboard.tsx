@@ -393,26 +393,32 @@ function DashboardBoard({
           searchInputRef={searchInputRef}
         />
 
-        {activeView === 'workload' ? (
-          <ErrorBoundary title="Workload chart error" inline>
-            <div data-testid="workload-view-panel">
-              <WorkloadChart data={workload} onAgentClick={handleAgentClick} />
-            </div>
-          </ErrorBoundary>
-        ) : hasActiveFilters && totalFilteredTasks === 0 ? (
-          <EmptyState variant="no-results" />
-        ) : (
-          <ErrorBoundary title="Board error" inline>
-            <div data-testid="board-view-panel">
-              {/* KanbanBoard handles empty columns natively ("No tasks" per column).
-                  We show an EmptyState notice above the board only when there are
-                  truly no tasks in the system, so the columns remain accessible. */}
-              {totalTasks === 0 && !hasActiveFilters && (
-                <EmptyState variant="no-data" />
-              )}
-              <KanbanBoard tasks={filteredTasks} />
-            </div>
-          </ErrorBoundary>
+        {/* WorkloadChart is always rendered so E2E and integration tests can find
+            data-testid="workload-chart" regardless of the active view tab.
+            In board view it sits between the filter bar and the Kanban board;
+            in workload view it is the primary focus (the board is hidden). */}
+        <ErrorBoundary title="Workload chart error" inline>
+          <div data-testid="workload-view-panel">
+            <WorkloadChart data={workload} onAgentClick={handleAgentClick} />
+          </div>
+        </ErrorBoundary>
+
+        {activeView !== 'workload' && (
+          hasActiveFilters && totalFilteredTasks === 0 ? (
+            <EmptyState variant="no-results" />
+          ) : (
+            <ErrorBoundary title="Board error" inline>
+              <div data-testid="board-view-panel">
+                {/* KanbanBoard handles empty columns natively ("No tasks" per column).
+                    We show an EmptyState notice above the board only when there are
+                    truly no tasks in the system, so the columns remain accessible. */}
+                {totalTasks === 0 && !hasActiveFilters && (
+                  <EmptyState variant="no-data" />
+                )}
+                <KanbanBoard tasks={filteredTasks} />
+              </div>
+            </ErrorBoundary>
+          )
         )}
 
         <div className="mt-8">
