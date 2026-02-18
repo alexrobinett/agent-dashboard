@@ -84,6 +84,7 @@ export default defineConfig({
     timeout: 120000,
     env: {
       VITE_CONVEX_URL: process.env.VITE_CONVEX_URL || 'https://curious-dolphin-134.convex.cloud',
+      // Allow Playwright E2E tests to bypass Better Auth so protected routes are accessible.
       BETTER_AUTH_E2E_BYPASS: process.env.BETTER_AUTH_E2E_BYPASS || '1',
     },
   },
