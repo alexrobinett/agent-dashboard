@@ -5,8 +5,14 @@ import { WifiOff } from 'lucide-react'
  * Detects Convex WebSocket disconnects using the Convex useConvexConnectionState()
  * hook, which accurately reflects the actual WebSocket connection state rather
  * than relying on the browser's navigator.onLine API.
+ *
+ * SSR guard: this component calls useConvexConnectionState() which requires a
+ * WebSocket global. We skip rendering entirely on the server (typeof window ===
+ * 'undefined') to prevent SSR crashes. This follows the same pattern used by
+ * KanbanBoard and dashboard route in this codebase.
  */
-export function NetworkStatusBanner() {
+
+function NetworkStatusBannerInner() {
   const { isWebSocketConnected } = useConvexConnectionState()
 
   if (isWebSocketConnected) return null
@@ -21,4 +27,9 @@ export function NetworkStatusBanner() {
       <span>Reconnecting — live updates paused</span>
     </div>
   )
+}
+
+export function NetworkStatusBanner() {
+  if (typeof window === 'undefined') return null
+  return <NetworkStatusBannerInner />
 }
