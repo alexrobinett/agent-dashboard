@@ -401,11 +401,15 @@ function DashboardBoard({
           </ErrorBoundary>
         ) : hasActiveFilters && totalFilteredTasks === 0 ? (
           <EmptyState variant="no-results" />
-        ) : totalTasks === 0 && !hasActiveFilters ? (
-          <EmptyState variant="no-data" />
         ) : (
           <ErrorBoundary title="Board error" inline>
             <div data-testid="board-view-panel">
+              {/* KanbanBoard handles empty columns natively ("No tasks" per column).
+                  We show an EmptyState notice above the board only when there are
+                  truly no tasks in the system, so the columns remain accessible. */}
+              {totalTasks === 0 && !hasActiveFilters && (
+                <EmptyState variant="no-data" />
+              )}
               <KanbanBoard tasks={filteredTasks} />
             </div>
           </ErrorBoundary>
@@ -460,23 +464,22 @@ function DashboardPendingComponent() {
   return <BoardSkeleton />
 }
 
+/**
+ * Re-throws a pre-caught error so ErrorBoundary can render its standard fallback UI.
+ * This avoids duplicating error UI in DashboardErrorComponent.
+ */
+function RethrowError({ error }: { error: Error }): never {
+  throw error
+}
+
+/**
+ * Route-level error component for the dashboard route.
+ * Composes ErrorBoundary so we don't duplicate error UI.
+ */
 function DashboardErrorComponent({ error }: { error: Error }) {
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-6">
-      <div className="max-w-md w-full p-6 bg-destructive/10 border border-destructive rounded-lg">
-        <h2 className="text-xl font-semibold text-destructive mb-2">
-          Failed to load dashboard
-        </h2>
-        <p className="text-destructive-foreground mb-4 text-sm">
-          {error.message || 'An unknown error occurred'}
-        </p>
-        <button
-          onClick={() => window.location.reload()}
-          className="px-4 py-2 bg-destructive text-destructive-foreground rounded hover:bg-destructive/90 transition-colors"
-        >
-          Retry
-        </button>
-      </div>
-    </div>
+    <ErrorBoundary title="Failed to load dashboard">
+      <RethrowError error={error} />
+    </ErrorBoundary>
   )
 }
