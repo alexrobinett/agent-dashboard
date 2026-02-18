@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router'
 
 import { useState } from 'react'
-import { Home, Menu, X, LogOut } from 'lucide-react'
+import { Home, Menu, X, LogOut, Bot } from 'lucide-react'
 import { useSession, signOut } from '../lib/auth-client'
 
 export default function Header() {
@@ -29,12 +29,9 @@ export default function Header() {
           <Menu size={24} />
         </button>
         <h1 className="ml-4 text-xl font-semibold flex-1">
-          <Link to="/">
-            <img
-              src="/tanstack-word-logo-white.svg"
-              alt="TanStack Logo"
-              className="h-10"
-            />
+          <Link to="/" className="flex items-center gap-2 text-white hover:text-cyan-400 transition-colors">
+            <Bot size={22} className="text-cyan-400" />
+            <span>Agent Dashboard</span>
           </Link>
         </h1>
 

@@ -20,12 +20,12 @@ describe('Header', () => {
     expect(header).not.toBeNull()
   })
 
-  it('should render the logo link to home', () => {
+  it('should render the Agent Dashboard branding link to home', () => {
     render(<Header />)
 
-    const logoLink = screen.getByAltText('TanStack Logo')
-    expect(logoLink).toBeDefined()
-    expect(logoLink.closest('a')?.getAttribute('href')).toBe('/')
+    const brandLink = screen.getByText('Agent Dashboard')
+    expect(brandLink).toBeDefined()
+    expect(brandLink.closest('a')?.getAttribute('href')).toBe('/')
   })
 
   it('should render the menu button with accessible label', () => {
