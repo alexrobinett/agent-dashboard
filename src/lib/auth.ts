@@ -32,6 +32,9 @@ export const githubOAuthEnabled =
 export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL || process.env.PUBLIC_APP_URL || 'http://localhost:3000',
   secret: process.env.BETTER_AUTH_SECRET,
+  // [security] Ensure the Secure cookie flag is set in production so session
+  // cookies are only transmitted over HTTPS.
+  useSecureCookies: process.env.NODE_ENV === 'production',
   ...(githubOAuthEnabled
     ? {
         socialProviders: {
