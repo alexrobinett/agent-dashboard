@@ -106,3 +106,19 @@
       monospace;
   }
 }
+
+/**
+ * Respect user's system-level motion preferences.
+ * Collapses all CSS transitions and animations to near-zero
+ * when the user has opted into reduced motion.
+ * Individual components should additionally use useReducedMotion()
+ * to conditionally omit animation utility classes from the DOM.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
