@@ -1,4 +1,5 @@
 import { betterAuth } from 'better-auth'
+import { resolve } from 'node:path'
 
 export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL || process.env.PUBLIC_APP_URL || 'http://localhost:3000',
@@ -11,6 +12,6 @@ export const auth = betterAuth({
   },
   database: {
     type: 'sqlite',
-    url: './better-auth.db',
+    url: process.env.BETTER_AUTH_DB_URL ?? resolve(process.cwd(), 'better-auth.db'),
   },
 })
