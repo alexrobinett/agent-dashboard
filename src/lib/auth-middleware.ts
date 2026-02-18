@@ -14,7 +14,8 @@ export const getSession = createServerFn({ method: 'GET' }).handler(
   async () => {
     // CI/E2E bypass: allows Playwright smoke tests to access protected routes.
     // Set BETTER_AUTH_E2E_BYPASS=1 in the E2E workflow to enable.
-    if (process.env.BETTER_AUTH_E2E_BYPASS === '1') {
+    // Guard: never active in production.
+    if (process.env.NODE_ENV !== 'production' && process.env.BETTER_AUTH_E2E_BYPASS === '1') {
       return {
         user: { id: 'e2e-user', email: 'e2e@ci.local', name: 'E2E CI User' },
         session: { id: 'e2e-session', userId: 'e2e-user', expiresAt: new Date(Date.now() + 3_600_000) },

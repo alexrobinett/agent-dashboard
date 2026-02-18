@@ -5,6 +5,11 @@ import { resolve } from 'node:path'
 if (process.env.NODE_ENV === 'production') {
   if (!process.env.GITHUB_CLIENT_ID) throw new Error('Missing GITHUB_CLIENT_ID')
   if (!process.env.GITHUB_CLIENT_SECRET) throw new Error('Missing GITHUB_CLIENT_SECRET')
+  if (!process.env.BETTER_AUTH_DB_URL)
+    throw new Error(
+      'Missing required environment variable in production: BETTER_AUTH_DB_URL. ' +
+        'Refusing to fall back to a CWD-relative SQLite file.',
+    )
 }
 
 export const auth = betterAuth({

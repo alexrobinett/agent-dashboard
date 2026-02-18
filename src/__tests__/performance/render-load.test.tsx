@@ -20,34 +20,38 @@ function percentile(values: number[], targetPercentile: number): number {
 }
 
 describe('Dashboard UI render performance/load', () => {
-  it('renders 120 task cards with p95 interactive render time under 2s', async () => {
-    const samples: number[] = []
+  it(
+    'renders 120 task cards with p95 interactive render time under 2s',
+    { timeout: 60_000 },
+    async () => {
+      const samples: number[] = []
 
-    // 20 samples minimum for a statistically valid p95 (5 samples ≡ max, not p95).
-    for (let sampleIndex = 0; sampleIndex < 20; sampleIndex += 1) {
-      const tasks = createMockTasksByStatus(20)
-      const groupedTasks = groupTasksByStatus(tasks)
+      // 20 samples minimum for a statistically valid p95 (5 samples ≡ max, not p95).
+      for (let sampleIndex = 0; sampleIndex < 20; sampleIndex += 1) {
+        const tasks = createMockTasksByStatus(20)
+        const groupedTasks = groupTasksByStatus(tasks)
 
-      const start = performance.now()
-      const view = render(<KanbanBoard tasks={groupedTasks} />)
+        const start = performance.now()
+        const view = render(<KanbanBoard tasks={groupedTasks} />)
 
-      const planningHeading = await view.findByRole('heading', { name: /^planning$/i }, { timeout: 2000 })
-      const taskCards = await view.findAllByTestId(/task-card-/, {}, { timeout: 2000 })
+        const planningHeading = await view.findByRole('heading', { name: /^planning$/i }, { timeout: 2000 })
+        const taskCards = await view.findAllByTestId(/task-card-/, {}, { timeout: 2000 })
 
-      expect(planningHeading).toBeTruthy()
-      expect(taskCards.length).toBe(120)
+        expect(planningHeading).toBeTruthy()
+        expect(taskCards.length).toBe(120)
 
-      samples.push(performance.now() - start)
-      view.unmount()
-    }
+        samples.push(performance.now() - start)
+        view.unmount()
+      }
 
-    const p50 = percentile(samples, 50)
-    const p95 = percentile(samples, 95)
+      const p50 = percentile(samples, 50)
+      const p95 = percentile(samples, 95)
 
-    expect(p50).toBeLessThan(1200)
-    expect(
-      p95,
-      `Expected render p95 < ${RENDER_THRESHOLD_MS}ms, got ${p95.toFixed(2)}ms`,
-    ).toBeLessThan(RENDER_THRESHOLD_MS)
-  })
+      expect(p50).toBeLessThan(1200)
+      expect(
+        p95,
+        `Expected render p95 < ${RENDER_THRESHOLD_MS}ms, got ${p95.toFixed(2)}ms`,
+      ).toBeLessThan(RENDER_THRESHOLD_MS)
+    },
+  )
 })
