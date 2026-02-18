@@ -1,4 +1,5 @@
 import { betterAuth } from 'better-auth'
+import Database from 'better-sqlite3'
 import { resolve } from 'node:path'
 
 export const auth = betterAuth({
@@ -10,8 +11,7 @@ export const auth = betterAuth({
       clientSecret: process.env.GITHUB_CLIENT_SECRET!,
     },
   },
-  database: {
-    type: 'sqlite',
-    url: process.env.BETTER_AUTH_DB_URL ?? resolve(process.cwd(), 'better-auth.db'),
-  },
+  database: new Database(
+    process.env.BETTER_AUTH_DB_URL ?? resolve(process.cwd(), 'better-auth.db'),
+  ),
 })
