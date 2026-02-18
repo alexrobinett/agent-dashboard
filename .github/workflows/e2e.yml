@@ -13,7 +13,7 @@ on:
 env:
   VITE_CONVEX_URL: https://curious-dolphin-134.convex.cloud
   BETTER_AUTH_DB_URL: /tmp/better-auth-ci.db
-  BETTER_AUTH_SECRET: ci-test-secret-not-for-production
+  BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
   # Bypass auth guard in E2E so Playwright smoke tests can access protected routes
   # without a real OAuth session.  See src/lib/auth-middleware.ts.
   BETTER_AUTH_E2E_BYPASS: "1"
