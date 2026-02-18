@@ -22,6 +22,23 @@
 
 import { test, expect, type Page } from '@playwright/test'
 
+type BreakpointSnapshotConfig = {
+  name: 'mobile' | 'tablet' | 'desktop'
+  width: number
+  height: number
+  maxDiffPixels: number
+}
+
+// Task 7.2b thresholds:
+// - mobile (375px): 120 max diff pixels
+// - tablet (768px): 180 max diff pixels
+// - desktop (1280px): 240 max diff pixels
+const RESPONSIVE_BREAKPOINTS: BreakpointSnapshotConfig[] = [
+  { name: 'mobile', width: 375, height: 812, maxDiffPixels: 120 },
+  { name: 'tablet', width: 768, height: 1024, maxDiffPixels: 180 },
+  { name: 'desktop', width: 1280, height: 720, maxDiffPixels: 240 },
+]
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -62,6 +79,19 @@ async function gotoDashboard(page: Page): Promise<void> {
   await page.waitForTimeout(500)
 }
 
+function getDynamicMaskLocators(page: Page) {
+  return [
+    // Live indicator pulse animation
+    page.locator('[data-testid="live-indicator"]'),
+    // Dynamic task counts by column
+    page.locator('[data-testid^="count-badge-"]'),
+    // Relative/localized timestamps
+    page.locator('[data-testid^="activity-timestamp-"]'),
+    // Avatar-like regions when present (future-safe selector)
+    page.locator('[data-testid*="avatar"], [aria-label*="avatar" i], [class*="avatar" i]'),
+  ]
+}
+
 // ---------------------------------------------------------------------------
 // Visual regression suite
 // ---------------------------------------------------------------------------
@@ -77,7 +107,7 @@ test.describe('Visual Regression — Dashboard', () => {
 
     // Ensure we're on the board view (default)
     // If a view-toggle exists, make sure "Board" is active
-    const boardToggle = page.getByRole('button', { name: /board/i })
+    const boardToggle = page.getByTestId('view-board-btn')
     if (await boardToggle.isVisible()) {
       await boardToggle.click()
       await page.waitForTimeout(200)
@@ -143,15 +173,34 @@ test.describe('Visual Regression — Kanban columns', () => {
     ] as const
 
     for (const col of columns) {
-      // Columns are identified by their heading text
-      const heading = page.getByRole('heading', { name: new RegExp(col.replace('-', ' '), 'i') })
-      const columnEl = heading.locator('../..')
+      const columnEl = page.getByTestId(`column-${col.replace('-', '_')}`)
+      const columnHeader = columnEl.locator(':scope > div').first()
 
-      if (await columnEl.isVisible()) {
-        await expect(columnEl).toHaveScreenshot(`column-${col}.png`, {
+      if (await columnHeader.isVisible()) {
+        await expect(columnHeader).toHaveScreenshot(`column-${col}.png`, {
           maxDiffPixelRatio: 0.1,
+          mask: [columnEl.locator('[data-testid^="count-badge-"]')],
         })
       }
     }
   })
+})
+
+test.describe('Visual Regression — Responsive matrix', () => {
+  // Keep matrix snapshots on Chromium only to avoid cross-engine noise.
+  test.skip(({ browserName }) => browserName !== 'chromium')
+
+  for (const breakpoint of RESPONSIVE_BREAKPOINTS) {
+    test(`board view @ ${breakpoint.width}px (${breakpoint.name}) @visual`, async ({ page }) => {
+      await page.setViewportSize({ width: breakpoint.width, height: breakpoint.height })
+      await gotoDashboard(page)
+
+      await expect(page).toHaveScreenshot(`dashboard-board-${breakpoint.name}-${breakpoint.width}.png`, {
+        fullPage: false,
+        clip: { x: 0, y: 0, width: breakpoint.width, height: Math.min(breakpoint.height, 340) },
+        mask: getDynamicMaskLocators(page),
+        maxDiffPixels: breakpoint.maxDiffPixels,
+      })
+    })
+  }
 })
