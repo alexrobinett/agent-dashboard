@@ -12,6 +12,8 @@ on:
 
 env:
   VITE_CONVEX_URL: https://curious-dolphin-134.convex.cloud
+  BETTER_AUTH_DB_URL: /tmp/better-auth-ci.db
+  BETTER_AUTH_SECRET: ci-test-secret-not-for-production
 
 jobs:
   e2e:
