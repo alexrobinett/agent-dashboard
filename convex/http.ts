@@ -220,7 +220,7 @@ http.route({
 /**
  * Health check endpoint
  * GET /api/health
- * Returns: { status: "ok" }
+ * Returns: { status: "ok", timestamp: "<ISO string>" }
  */
 http.route({
   path: '/api/health',
@@ -228,7 +228,7 @@ http.route({
   handler: httpActionGeneric(async () => {
     return withCors(
       new Response(
-        JSON.stringify({ status: 'ok' }),
+        JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }),
         {
           status: 200,
           headers: {
