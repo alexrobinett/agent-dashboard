@@ -13,6 +13,7 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('../../../convex/_generated/server', () => ({
   query: (config: Record<string, unknown>) => config,
   mutation: (config: Record<string, unknown>) => config,
+  internalMutation: (config: Record<string, unknown>) => config,
 }))
 
 import * as activityModule from '../../../convex/activityLog'
@@ -40,6 +41,10 @@ function makeMutableCtx() {
           logs.push({ _id: id, ...doc })
           return id
         },
+      },
+      // [security] Mock auth for getUserIdentity guards (j57bds0a8vv8qk349dqsnfw65h81d99x)
+      auth: {
+        getUserIdentity: async () => ({ tokenIdentifier: 'test|user', subject: 'test-user', issuer: 'test' }),
       },
     },
     logs,

@@ -35,6 +35,9 @@ export const setUserPreferences = mutation({
     notificationEnabled: v.boolean(),
   },
   handler: async (ctx, args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const input = args as any
     const now = Date.now()
     const existing = await ctx.db

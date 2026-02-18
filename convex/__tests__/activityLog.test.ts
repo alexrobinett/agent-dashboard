@@ -7,6 +7,7 @@ import type { Id } from '../_generated/dataModel'
 vi.mock('../_generated/server', () => ({
   query: (config: Record<string, unknown>) => config,
   mutation: (config: Record<string, unknown>) => config,
+  internalMutation: (config: Record<string, unknown>) => config,
 }))
 
 import * as activityModule from '../activityLog'
@@ -84,6 +85,10 @@ function makeMutableCtx(initialTasks: Record<string, unknown>[] = []) {
             tasks.splice(idx, 1)
           }
         },
+      },
+      // [security] Mock auth for getUserIdentity guards (j57bds0a8vv8qk349dqsnfw65h81d99x)
+      auth: {
+        getUserIdentity: async () => ({ tokenIdentifier: 'test|user', subject: 'test-user', issuer: 'test' }),
       },
     },
     logs,

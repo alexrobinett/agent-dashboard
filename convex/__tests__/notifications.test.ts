@@ -96,6 +96,10 @@ describe('tasks completion trigger', () => {
         patch: async () => undefined,
       },
       runMutation,
+      // [security] Mock auth for getUserIdentity guard (j57bds0a8vv8qk349dqsnfw65h81d99x)
+      auth: {
+        getUserIdentity: async () => ({ tokenIdentifier: 'test|user', subject: 'test-user', issuer: 'test' }),
+      },
     }
 
     await completeTaskHandler(ctx, { taskId: 'task-1' as Id<'tasks'> })

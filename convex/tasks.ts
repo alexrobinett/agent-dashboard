@@ -1,4 +1,4 @@
-import { query, mutation } from './_generated/server'
+import { query, mutation, internalMutation, type MutationCtx } from './_generated/server'
 import type { Id } from './_generated/dataModel'
 import { internal } from './_generated/api'
 import { v } from 'convex/values'
@@ -434,6 +434,9 @@ export const pushStatus = mutation({
     sessionKey: v.optional(v.string()),
   },
   handler: async (ctx, _args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
 
       const {  taskId, status, actor, note, runId, sessionKey  } = _args as any
     const task = await ctx.db.get(taskId as Id<"tasks">)
@@ -480,6 +483,9 @@ export const pushEvent = mutation({
     details: v.optional(v.string()),
   },
   handler: async (ctx, _args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
 
       const {  taskId, event, actor, details  } = _args as any
     const task = await ctx.db.get(taskId as Id<"tasks">)
@@ -519,6 +525,9 @@ export const createTask = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, _args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const args = _args as any
     await validateDependencies(ctx, '__new__', args.dependsOn?.map((id: any) => String(id)))
 
@@ -550,6 +559,9 @@ export const claimTask = mutation({
     agent: v.string(),
   },
   handler: async (ctx, _args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
 
       const {  taskId, agent  } = _args as any
     const task = await ctx.db.get(taskId as Id<"tasks">)
@@ -573,6 +585,9 @@ export const startTask = mutation({
     taskId: v.id('tasks'),
   },
   handler: async (ctx, _args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
 
       const {  taskId  } = _args as any
     const task = await ctx.db.get(taskId as Id<"tasks">)
@@ -596,6 +611,9 @@ export const submitForReview = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, _args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
 
       const {  taskId, notes  } = _args as any
     const task = await ctx.db.get(taskId as Id<"tasks">)
@@ -621,6 +639,9 @@ export const submitForReviewAndAssign = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, _args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
 
       const {  taskId, reviewer, notes  } = _args as any
     const task = await ctx.db.get(taskId as Id<"tasks">)
@@ -646,6 +667,9 @@ export const completeTask = mutation({
     result: v.optional(v.string()),
   },
   handler: async (ctx, _args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
 
       const {  taskId, result  } = _args as any
     const task = await ctx.db.get(taskId as Id<"tasks">)
@@ -683,6 +707,9 @@ export const updateTask = mutation({
     expectedVersion: v.optional(v.number()),
   },
   handler: async (ctx, _args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
 
       const { taskId, ...fields } = _args as any
     const task = await ctx.db.get(taskId as Id<"tasks">)
@@ -745,6 +772,9 @@ export const handoffTask = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, _args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
 
       const {  taskId, toAgent, notes  } = _args as any
     const task = await ctx.db.get(taskId as Id<"tasks">)
@@ -763,6 +793,9 @@ export const handoffTask = mutation({
 export const deleteTask = mutation({
   args: { taskId: v.id('tasks') },
   handler: async (ctx, _args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
 
       const {  taskId  } = _args as any
     await ctx.db.delete(taskId)
@@ -770,10 +803,13 @@ export const deleteTask = mutation({
 })
 
 // ═══════════════════════════════════════════════════════════
-// MUTATIONS — Dashboard CRUD (original, kept for backward compat)
+// MUTATIONS — Dashboard CRUD (internal: called only from HTTP actions)
+// [security] Converted to internalMutation so they can only be invoked from
+// Convex HTTP actions (which already enforce Bearer token auth), not directly
+// from external Convex clients. (j57bds0a8vv8qk349dqsnfw65h81d99x)
 // ═══════════════════════════════════════════════════════════
 
-export const create = mutation({
+export const create = internalMutation({
   args: {
     title: v.string(),
     priority: v.string(),
@@ -783,7 +819,8 @@ export const create = mutation({
     createdBy: v.optional(v.string()),
     status: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  handler: async (ctx: MutationCtx, args: any) => {
     const validPriorities = ['low', 'normal', 'high', 'urgent']
     if (!validPriorities.includes(args!.priority as unknown as string)) {
       throw new Error(`Invalid priority: ${args!.priority}. Must be one of: ${validPriorities.join(', ')}`)
@@ -824,7 +861,7 @@ export const create = mutation({
   },
 })
 
-export const update = mutation({
+export const update = internalMutation({
   args: {
     id: v.id('tasks'),
     status: v.optional(v.string()),
@@ -832,7 +869,8 @@ export const update = mutation({
     assignedAgent: v.optional(v.string()),
     notes: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  handler: async (ctx: MutationCtx, args: any) => {
     const input = args as unknown as {
       id: Id<'tasks'>
       status?: string
@@ -912,11 +950,12 @@ export const update = mutation({
   },
 })
 
-export const remove = mutation({
+export const remove = internalMutation({
   args: {
     id: v.id('tasks'),
   },
-  handler: async (ctx, args) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  handler: async (ctx: MutationCtx, args: any) => {
     const task = await ctx.db.get(args!.id)
     if (!task) {
       throw new Error('Task not found')

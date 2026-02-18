@@ -80,6 +80,9 @@ export const logActivity = mutation({
     ),
   },
   handler: async (ctx, args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const a = args as any
 
     return await ctx.db.insert('activityLog', {

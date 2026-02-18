@@ -25,12 +25,19 @@ type QueryChain = {
   };
 }
 
+/** Minimal Auth interface matching convex/server Auth (getUserIdentity). */
+export interface Auth {
+  getUserIdentity(): Promise<{ tokenIdentifier: string; subject: string; issuer: string; [key: string]: any } | null>;
+}
+
 export interface QueryCtx {
   db: {
     query: (table: string) => QueryChain;
     get: (id: any) => Promise<any>;
   };
   runQuery: (query: any, args: any) => Promise<any>;
+  // [security] auth field required for getUserIdentity guards (j57bds0a8vv8qk349dqsnfw65h81d99x)
+  auth: Auth;
 }
 
 export interface MutationCtx extends QueryCtx {
@@ -42,6 +49,7 @@ export interface MutationCtx extends QueryCtx {
     get: (id: any) => Promise<any>;
   };
   runMutation: (mutation: any, args: any) => Promise<any>;
+  // auth is inherited from QueryCtx
 }
 
 export const query = <Args = any, Output = any>(config: {
@@ -91,6 +99,12 @@ export const api = {
 export const internal = {
   notifications: {
     notifyTaskDone: {} as any,
+  },
+  tasks: {
+    // [security] create/update/remove moved to internalMutation (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    create: {} as any,
+    update: {} as any,
+    remove: {} as any,
   },
 };
 EOF

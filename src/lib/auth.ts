@@ -10,6 +10,14 @@ if (process.env.NODE_ENV === 'production') {
       'Missing required environment variable in production: BETTER_AUTH_DB_URL. ' +
         'Refusing to fall back to a CWD-relative SQLite file.',
     )
+  // [security] BETTER_AUTH_SECRET must be set to a strong value in production.
+  // A missing or weak secret allows session token forgery.
+  if (!process.env.BETTER_AUTH_SECRET || process.env.BETTER_AUTH_SECRET.length < 32) {
+    throw new Error(
+      'BETTER_AUTH_SECRET must be set (>=32 chars) in production. ' +
+        'Generate one with: openssl rand -base64 32',
+    )
+  }
 }
 
 /**

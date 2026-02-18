@@ -1,7 +1,26 @@
 import { httpRouter, httpActionGeneric } from 'convex/server'
-import { api } from './_generated/api'
+import { api, internal } from './_generated/api'
 import type { Id } from './_generated/dataModel'
 import { sendApnsPush } from './apns'
+
+/**
+ * Constant-time string comparison to prevent timing attacks on Bearer token checks.
+ * Convex functions run in a V8-isolate sandbox without Node.js crypto/Buffer,
+ * so we implement a manual XOR-based loop.
+ * [security] Fix: replaces naive `===` comparison (timing-safe, j57c04qmxggwc6zvvnd5f4yz1s81c0jm)
+ */
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const la = a.length
+  const lb = b.length
+  // XOR of lengths: non-zero when they differ (constant-time length check)
+  let result = la ^ lb
+  const maxLen = Math.max(la, lb)
+  for (let i = 0; i < maxLen; i++) {
+    // charCodeAt returns NaN out-of-bounds; `| 0` coerces NaN → 0 safely
+    result |= ((a.charCodeAt(i) | 0) ^ (b.charCodeAt(i) | 0))
+  }
+  return result === 0
+}
 
 const http = httpRouter()
 
@@ -45,7 +64,8 @@ async function requireAuth(
     )
   }
 
-  if (token !== apiKey) {
+  // [security] Use constant-time comparison to prevent timing attacks (j57c04qmxggwc6zvvnd5f4yz1s81c0jm)
+  if (!timingSafeStringEqual(token, apiKey)) {
     return withCors(
       new Response(
         JSON.stringify({ error: 'Unauthorized: invalid or expired token' }),
@@ -62,17 +82,19 @@ async function requireAuth(
 }
 
 /**
- * Get allowed CORS origins from environment
- * Supports comma-separated list of origins
- * Falls back to wildcard (*) if not configured (development mode)
+ * Get allowed CORS origins from environment.
+ * Supports comma-separated list of origins via ALLOWED_ORIGINS env var.
+ * [security] Fail-closed: returns empty list (deny all) when ALLOWED_ORIGINS is unset (j574s0sjsbveed9cdw11pz3ywn81deef).
+ * Set ALLOWED_ORIGINS=* explicitly in dev/staging to allow all origins.
  */
 function getAllowedOrigins(): string[] {
   const origins = process.env.ALLOWED_ORIGINS
   if (origins) {
     return origins.split(',').map((o) => o.trim())
   }
-  // Development fallback: allow all origins
-  return ['*']
+  // Fail-closed: no ALLOWED_ORIGINS configured → deny all cross-origin requests.
+  // This prevents accidental CORS exposure in misconfigured deployments.
+  return []
 }
 
 /**
@@ -87,30 +109,35 @@ const corsConfig = {
 }
 
 /**
- * Helper to add CORS headers to response
- * Supports origin-specific responses for security
+ * Helper to add CORS headers to response.
+ * [security] Fail-closed: CORS headers are only set when the requesting origin
+ * is explicitly present in allowedOrigins. If allowedOrigins is empty (ALLOWED_ORIGINS
+ * unset) or the origin is not in the list, no Access-Control-Allow-Origin header is
+ * added — browsers will block the cross-origin request (j574s0sjsbveed9cdw11pz3ywn81deef).
  */
 function withCors(response: Response, requestOrigin?: string): Response {
   const { allowedOrigins, methods, headers, maxAge } = corsConfig
 
-  // Determine which origin to allow
-  let allowOrigin = '*'
-  if (!allowedOrigins.includes('*')) {
-    // If request origin is in allowed list, use it
-    // Otherwise, use first allowed origin as fallback
-    if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
-      allowOrigin = requestOrigin
-    } else {
-      allowOrigin = allowedOrigins[0]
-    }
-    // Also set Vary header for proper caching
-    response.headers.set('Vary', 'Origin')
+  // Wildcard shortcut: only if explicitly configured in ALLOWED_ORIGINS
+  if (allowedOrigins.includes('*')) {
+    response.headers.set('Access-Control-Allow-Origin', '*')
+    response.headers.set('Access-Control-Allow-Methods', methods)
+    response.headers.set('Access-Control-Allow-Headers', headers)
+    response.headers.set('Access-Control-Max-Age', maxAge)
+    return response
   }
 
-  response.headers.set('Access-Control-Allow-Origin', allowOrigin)
-  response.headers.set('Access-Control-Allow-Methods', methods)
-  response.headers.set('Access-Control-Allow-Headers', headers)
-  response.headers.set('Access-Control-Max-Age', maxAge)
+  // Origin-specific: only set header if the requesting origin is in the allow-list.
+  // An absent Access-Control-Allow-Origin header causes browsers to block CORS requests.
+  if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+    response.headers.set('Access-Control-Allow-Origin', requestOrigin)
+    response.headers.set('Access-Control-Allow-Methods', methods)
+    response.headers.set('Access-Control-Allow-Headers', headers)
+    response.headers.set('Access-Control-Max-Age', maxAge)
+    // Vary tells CDNs/caches the response differs per origin
+    response.headers.set('Vary', 'Origin')
+  }
+  // else: no CORS headers — cross-origin request denied (fail-closed)
 
   return response
 }
@@ -447,7 +474,7 @@ http.route({
       }
       
       // Create task
-      const result = await ctx.runMutation(api.tasks.create, {
+      const result = await ctx.runMutation(internal.tasks.create, {
         title: body.title,
         priority: body.priority,
         project: body.project,
@@ -508,7 +535,7 @@ http.route({
       const body = await request.json()
       
       // Update task
-      const result = await ctx.runMutation(api.tasks.update, {
+      const result = await ctx.runMutation(internal.tasks.update, {
         id: taskId as Id<"tasks">,
         status: body.status,
         priority: body.priority,

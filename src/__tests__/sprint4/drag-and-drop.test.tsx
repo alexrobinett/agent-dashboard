@@ -13,6 +13,7 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('../../../convex/_generated/server', () => ({
   query: (config: Record<string, unknown>) => config,
   mutation: (config: Record<string, unknown>) => config,
+  internalMutation: (config: Record<string, unknown>) => config,
 }))
 
 import { groupTasksByStatus, createMockTask } from '../../test/fixtures'
