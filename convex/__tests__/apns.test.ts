@@ -17,6 +17,34 @@ afterEach(() => {
 })
 
 describe('APNS HTTP action', () => {
+  it('returns 400 for invalid JSON body', async () => {
+    const request = new Request('http://localhost/api/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{invalid',
+    })
+
+    const response = await handler({}, request)
+    const payload = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(payload).toEqual({ error: 'Invalid JSON body' })
+  })
+
+  it('returns 400 when body is not a JSON object', async () => {
+    const request = new Request('http://localhost/api/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify('plain string'),
+    })
+
+    const response = await handler({}, request)
+    const payload = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(payload).toEqual({ error: 'Request body must be a JSON object' })
+  })
+
   it('returns 400 when required fields are missing', async () => {
     const request = new Request('http://localhost/api/push/send', {
       method: 'POST',
@@ -116,6 +144,53 @@ describe('APNS HTTP action', () => {
         status: 400,
         statusText: 'Bad Request',
         body: '{"reason":"BadDeviceToken"}',
+      },
+    })
+  })
+
+  it('returns 400 when data field contains non-string values', async () => {
+    const request = new Request('http://localhost/api/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        deviceToken: 'abc123',
+        title: 'Hi',
+        body: 'There',
+        data: { count: 1, ok: 'yes' },
+      }),
+    })
+
+    const response = await handler({}, request)
+    const payload = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(payload).toEqual({
+      error: 'Invalid optional field: data must be an object of string values',
+    })
+  })
+
+  it('returns 500 with error details when APNS fetch throws', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network down'))
+
+    const request = new Request('http://localhost/api/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        deviceToken: 'abc123',
+        title: 'Hi',
+        body: 'There',
+      }),
+    })
+
+    const response = await handler({}, request)
+    const payload = await response.json()
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(response.status).toBe(500)
+    expect(payload).toEqual({
+      error: 'APNS request failed',
+      details: {
+        message: 'network down',
       },
     })
   })
