@@ -29,6 +29,7 @@ function makeMutableCtx(tasks: any[]) {
   const store = [...tasks]
   return {
     ctx: {
+      auth: { getUserIdentity: async () => ({ subject: 'test-user' }) },
       db: {
         query: (_table: string) => ({
           order: (_dir: string) => ({

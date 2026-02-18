@@ -23,6 +23,7 @@ const getWorkloadHandler = (taskModule.getWorkload as unknown as HandlerExtracto
 
 function mockCtx(tasks: any[]) {
   return {
+    auth: { getUserIdentity: async () => ({ subject: 'test-user' }) },
     db: {
       query: (_table: string) => ({
         order: (_dir: string) => ({

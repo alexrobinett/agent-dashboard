@@ -41,6 +41,7 @@ function makeTask(overrides: Partial<Task> & { _id: TaskId }): Task {
 
 function mockCtx(tasks: Task[]) {
   return {
+    auth: { getUserIdentity: async () => ({ subject: 'test-user' }) },
     db: {
       query: (_table: string) => ({
         order: (_dir: string) => ({

@@ -23,6 +23,7 @@ const listFilteredHandler = (taskModule.listFiltered as unknown as HandlerExtrac
 // Mock Convex query context backed by a real task array
 function mockCtx(tasks: any[]) {
   return {
+    auth: { getUserIdentity: async () => ({ subject: 'test-user' }) },
     db: {
       query: (_table: string) => ({
         order: (_dir: string) => ({

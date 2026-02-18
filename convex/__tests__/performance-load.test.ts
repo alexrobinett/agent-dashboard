@@ -54,6 +54,7 @@ function makeTask(idx: number): Task {
  */
 function mockCtx(tasks: Task[]) {
   return {
+    auth: { getUserIdentity: async () => ({ subject: 'test-user' }) },
     db: {
       query: (_table: string) => ({
         order: (_dir: string) => ({
