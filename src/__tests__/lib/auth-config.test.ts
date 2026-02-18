@@ -56,7 +56,8 @@ describe('Better Auth config — useSecureCookies', () => {
     await loadAuthModule()
 
     expect(capturedConfig.current).not.toBeNull()
-    expect(capturedConfig.current!.useSecureCookies).toBe(true)
+    const advanced = capturedConfig.current!.advanced as Record<string, unknown>
+    expect(advanced?.useSecureCookies).toBe(true)
   })
 
   it('sets useSecureCookies to false in test environment', async () => {
@@ -65,7 +66,8 @@ describe('Better Auth config — useSecureCookies', () => {
     await loadAuthModule()
 
     expect(capturedConfig.current).not.toBeNull()
-    expect(capturedConfig.current!.useSecureCookies).toBe(false)
+    const advanced = capturedConfig.current!.advanced as Record<string, unknown>
+    expect(advanced?.useSecureCookies).toBe(false)
   })
 
   it('sets useSecureCookies to false in development', async () => {
@@ -74,7 +76,8 @@ describe('Better Auth config — useSecureCookies', () => {
     await loadAuthModule()
 
     expect(capturedConfig.current).not.toBeNull()
-    expect(capturedConfig.current!.useSecureCookies).toBe(false)
+    const advanced = capturedConfig.current!.advanced as Record<string, unknown>
+    expect(advanced?.useSecureCookies).toBe(false)
   })
 })
 
