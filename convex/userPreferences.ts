@@ -39,6 +39,7 @@ export const setUserPreferences = mutation({
     notificationEnabled: v.boolean(),
   },
   handler: async (ctx, args) => {
+    const { defaultView, filterProject, filterAgent, notificationEnabled } = args!
     const identity = await ctx.auth.getUserIdentity()
     if (!identity) throw new Error('Unauthenticated')
     const userId = identity.subject // Always use auth identity, never caller-supplied
@@ -50,10 +51,10 @@ export const setUserPreferences = mutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, {
-        defaultView: args.defaultView,
-        filterProject: args.filterProject,
-        filterAgent: args.filterAgent,
-        notificationEnabled: args.notificationEnabled,
+        defaultView,
+        filterProject,
+        filterAgent,
+        notificationEnabled,
         updatedAt: now,
       })
       return existing._id
@@ -61,10 +62,10 @@ export const setUserPreferences = mutation({
 
     return await ctx.db.insert('userPreferences', {
       userId,
-      defaultView: args.defaultView,
-      filterProject: args.filterProject,
-      filterAgent: args.filterAgent,
-      notificationEnabled: args.notificationEnabled,
+      defaultView,
+      filterProject,
+      filterAgent,
+      notificationEnabled,
       createdAt: now,
       updatedAt: now,
     })
