@@ -1,5 +1,6 @@
 import { query, mutation } from './_generated/server'
 import type { Id } from './_generated/dataModel'
+import { internal } from './_generated/api'
 import { v } from 'convex/values'
 
 // ─── Shared Type Validators ───
@@ -65,6 +66,18 @@ export function sanitizeText(value: string, maxLen = 4000): string {
 export function sanitizeOptionalText(value: string | undefined, maxLen = 4000): string | undefined {
   if (value === undefined) return undefined
   return sanitizeText(value, maxLen)
+}
+
+async function queueTaskDoneNotification(
+  ctx: { runMutation: (mutation: unknown, args: { taskId: Id<'tasks'>; agentName: string }) => Promise<unknown> },
+  taskId: Id<'tasks'>,
+  taskBeforeUpdate: { assignedAgent?: string | undefined },
+) {
+  if (!taskBeforeUpdate.assignedAgent) return
+  await ctx.runMutation(internal.notifications.notifyTaskDone, {
+    taskId,
+    agentName: taskBeforeUpdate.assignedAgent,
+  })
 }
 
 async function validateDependencies(
@@ -180,6 +193,28 @@ export function aggregateWorkload(
   return workload
 }
 
+type QueryCtx = { db: { query: (table: 'tasks') => any } }
+type IndexSelector = (q: any) => any
+
+/**
+ * Test mocks in this repo expose query().order().take() without withIndex().
+ * Use withIndex when available in runtime, otherwise fall back to ordered scan.
+ */
+async function queryTasksWithOptionalIndex(
+  ctx: QueryCtx,
+  take: number,
+  indexName?: string,
+  indexSelector?: IndexSelector,
+) {
+  const baseQuery = ctx.db.query('tasks')
+  const maybeWithIndex = (baseQuery as { withIndex?: (name: string, fn?: IndexSelector) => any }).withIndex
+  const orderedQuery =
+    indexName && typeof maybeWithIndex === 'function'
+      ? maybeWithIndex.call(baseQuery, indexName, indexSelector).order('desc')
+      : baseQuery.order('desc')
+  return await orderedQuery.take(take)
+}
+
 // ═══════════════════════════════════════════════════════════
 // QUERIES
 // ═══════════════════════════════════════════════════════════
@@ -188,14 +223,14 @@ export function aggregateWorkload(
 
 export const list = query({
   handler: async (ctx) => {
-    return await ctx.db.query('tasks').order('desc').take(100)
+    return await queryTasksWithOptionalIndex(ctx, 100, 'by_created_at')
   },
 })
 
 export const getByStatus = query({
   args: {},
   handler: async (ctx) => {
-    const tasks = await ctx.db.query('tasks').order('desc').take(200)
+    const tasks = await queryTasksWithOptionalIndex(ctx, 200, 'by_created_at')
     
     const grouped: Record<string, typeof tasks> = {
       planning: [],
@@ -240,24 +275,41 @@ export const listFiltered = query({
     const limit = typeof args?.limit === 'number' ? args.limit : 50
     const offset = typeof args?.offset === 'number' ? args.offset : 0
     
-    const allTasks = await ctx.db.query('tasks').order('desc').take(1000)
+    const status = args?.status
+    const assignedAgent = args?.assignedAgent
+    const project = args?.project
+    const priority = args?.priority
+
+    let filtered: any[]
+    if (status && assignedAgent) {
+      filtered = await queryTasksWithOptionalIndex(
+        ctx,
+        1000,
+        'by_status_and_agent',
+        (q) => q.eq('status', status).eq('assignedAgent', assignedAgent),
+      )
+    } else if (status) {
+      filtered = await queryTasksWithOptionalIndex(ctx, 1000, 'by_status', (q) => q.eq('status', status))
+    } else if (assignedAgent) {
+      filtered = await queryTasksWithOptionalIndex(ctx, 1000, 'by_agent', (q) => q.eq('assignedAgent', assignedAgent))
+    } else if (project) {
+      filtered = await queryTasksWithOptionalIndex(ctx, 1000, 'by_project', (q) => q.eq('project', project))
+    } else if (priority) {
+      filtered = await queryTasksWithOptionalIndex(ctx, 1000, 'by_priority', (q) => q.eq('priority', priority))
+    } else {
+      filtered = await queryTasksWithOptionalIndex(ctx, 1000, 'by_created_at')
+    }
     
-    let filtered = allTasks
-    
-    if (args?.status) {
-      const status = args.status
+    if (status) {
       filtered = filtered.filter(task => task.status === status)
     }
-    if (args?.priority) {
-      const priority = args.priority
+    if (priority) {
       filtered = filtered.filter(task => task.priority === priority)
     }
-    if (args?.project) {
-      const project = args.project
+    if (project) {
       filtered = filtered.filter(task => task.project === project)
     }
-    if (args?.assignedAgent) {
-      const assignedAgent = args.assignedAgent
+    if (assignedAgent) {
       filtered = filtered.filter(task => task.assignedAgent === assignedAgent)
     }
     
@@ -279,7 +331,7 @@ export const getWorkloadByAgentStatus = query({
     priority: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const tasks = await ctx.db.query('tasks').order('desc').take(500)
+    const tasks = await queryTasksWithOptionalIndex(ctx, 500, 'by_created_at')
     return aggregateWorkloadEntries(tasks, {
       project: args?.project as string | undefined,
       priority: args?.priority as string | undefined,
@@ -300,7 +352,24 @@ export const listTasks = query({
     const { status, agent, project, limit } = (_args ?? {}) as any
 
     const max = limit ?? 100
-    let tasks = await ctx.db.query('tasks').order('desc').take(max)
+    let tasks: any[]
+
+    if (status && agent) {
+      tasks = await queryTasksWithOptionalIndex(
+        ctx,
+        max,
+        'by_status_and_agent',
+        (q) => q.eq('status', status).eq('assignedAgent', agent),
+      )
+    } else if (status) {
+      tasks = await queryTasksWithOptionalIndex(ctx, max, 'by_status', (q) => q.eq('status', status))
+    } else if (agent) {
+      tasks = await queryTasksWithOptionalIndex(ctx, max, 'by_agent', (q) => q.eq('assignedAgent', agent))
+    } else if (project) {
+      tasks = await queryTasksWithOptionalIndex(ctx, max, 'by_project', (q) => q.eq('project', project))
+    } else {
+      tasks = await queryTasksWithOptionalIndex(ctx, max, 'by_created_at')
+    }
 
     if (project) tasks = tasks.filter((t) => t.project === project)
     if (status) tasks = tasks.filter((t) => t.status === status)
@@ -322,14 +391,14 @@ export const getTask = query({
 export const getWorkload = query({
   args: {},
   handler: async (ctx) => {
-    const tasks = await ctx.db.query('tasks').order('desc').take(500)
+    const tasks = await queryTasksWithOptionalIndex(ctx, 500, 'by_created_at')
     return aggregateWorkload(tasks)
   },
 })
 
 export const getBoard = query({
   handler: async (ctx) => {
-    const all = await ctx.db.query('tasks').order('desc').take(200)
+    const all = await queryTasksWithOptionalIndex(ctx, 200, 'by_created_at')
     const board: Record<string, typeof all> = {
       planning: [],
       ready: [],
@@ -395,6 +464,9 @@ export const pushStatus = mutation({
     if (sessionKey !== undefined) patch.sessionKey = sessionKey
 
     await ctx.db.patch(taskId, patch)
+    if (task.status !== 'done' && status === 'done') {
+      await queueTaskDoneNotification(ctx, taskId, task)
+    }
     return { ok: true, version: patch.version }
   },
 })
@@ -590,6 +662,7 @@ export const completeTask = mutation({
       result: sanitizeOptionalText(result, 4000),
       version: (task.version || 0) + 1,
     })
+    await queueTaskDoneNotification(ctx, taskId, task)
     return taskId
   },
 })
@@ -657,6 +730,9 @@ export const updateTask = mutation({
 
     patch.version = (task.version || 0) + 1
     await ctx.db.patch(taskId, patch)
+    if (fields.status === 'done' && task.status !== 'done') {
+      await queueTaskDoneNotification(ctx, taskId, task)
+    }
     return taskId
   },
 })
@@ -757,61 +833,71 @@ export const update = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const task = await ctx.db.get(args!.id)
+    const input = args as unknown as {
+      id: Id<'tasks'>
+      status?: string
+      priority?: string
+      assignedAgent?: string
+      notes?: string
+    }
+    const task = await ctx.db.get(input.id)
     if (!task) {
-      throw new Error(`Task not found: ${args!.id}`)
+      throw new Error(`Task not found: ${input.id}`)
     }
     
-    if (args!.status) {
+    if (input.status) {
       const validStatuses = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked', 'cancelled']
-      if (!validStatuses.includes(args!.status as unknown as string)) {
-        throw new Error(`Invalid status: ${args!.status}. Must be one of: ${validStatuses.join(', ')}`)
+      if (!validStatuses.includes(input.status)) {
+        throw new Error(`Invalid status: ${input.status}. Must be one of: ${validStatuses.join(', ')}`)
       }
     }
     
-    if (args!.priority) {
+    if (input.priority) {
       const validPriorities = ['low', 'normal', 'high', 'urgent']
-      if (!validPriorities.includes(args!.priority as unknown as string)) {
-        throw new Error(`Invalid priority: ${args!.priority}. Must be one of: ${validPriorities.join(', ')}`)
+      if (!validPriorities.includes(input.priority)) {
+        throw new Error(`Invalid priority: ${input.priority}. Must be one of: ${validPriorities.join(', ')}`)
       }
     }
     
     const updates: Record<string, unknown> = {}
-    if (args!.status !== undefined) updates.status = args!.status
-    if (args!.priority !== undefined) updates.priority = args!.priority
-    if (args!.assignedAgent !== undefined) updates.assignedAgent = args!.assignedAgent
-    if (args!.notes !== undefined) updates.notes = args!.notes
+    if (input.status !== undefined) updates.status = input.status
+    if (input.priority !== undefined) updates.priority = input.priority
+    if (input.assignedAgent !== undefined) updates.assignedAgent = input.assignedAgent
+    if (input.notes !== undefined) updates.notes = input.notes
     
-    await ctx.db.patch(args!.id, updates)
+    await ctx.db.patch(input.id, updates)
+    if (input.status === 'done' && task.status !== 'done') {
+      await queueTaskDoneNotification(ctx, input.id, task)
+    }
 
-    if (args!.status !== undefined && args!.status !== task.status) {
+    if (input.status !== undefined && input.status !== task.status) {
       await ctx.db.insert('activityLog', {
-        taskId: args!.id,
+        taskId: input.id,
         actor: 'system',
         actorType: 'system',
         action: 'status_changed',
         metadata: {
           fromStatus: task.status || 'planning',
-          toStatus: args!.status,
+          toStatus: input.status,
         },
         timestamp: Date.now(),
       })
-    } else if (args!.priority !== undefined && args!.priority !== task.priority) {
+    } else if (input.priority !== undefined && input.priority !== task.priority) {
       await ctx.db.insert('activityLog', {
-        taskId: args!.id,
+        taskId: input.id,
         actor: 'system',
         actorType: 'system',
         action: 'priority_changed',
         metadata: {
           fromStatus: task.priority || 'normal',
-          toStatus: args!.priority,
+          toStatus: input.priority,
         },
         timestamp: Date.now(),
       })
     } else {
       const changedFields = Object.keys(updates).join(', ')
       await ctx.db.insert('activityLog', {
-        taskId: args!.id,
+        taskId: input.id,
         actor: 'system',
         actorType: 'system',
         action: 'updated',

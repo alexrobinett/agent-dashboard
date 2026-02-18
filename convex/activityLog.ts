@@ -1,6 +1,16 @@
 import { query, mutation } from './_generated/server'
 import { v } from 'convex/values'
 
+type QueryCtx = { db: { query: (table: 'activityLog') => any } }
+
+function maybeWithIndex(queryRef: any, indexName: string, indexFn?: (q: any) => any) {
+  const withIndex = (queryRef as { withIndex?: (name: string, fn?: (q: any) => any) => any }).withIndex
+  if (typeof withIndex === 'function') {
+    return { queryRef: withIndex.call(queryRef, indexName, indexFn), usedIndex: true }
+  }
+  return { queryRef, usedIndex: false }
+}
+
 /**
  * Get activity log entries for a specific task
  * Returns entries in chronological order (oldest first)
@@ -8,16 +18,14 @@ import { v } from 'convex/values'
 export const getTaskActivity = query({
   args: { taskId: v.id('tasks') },
   handler: async (ctx, args) => {
-    // In production, this will use:
-    // return await ctx.db
-    //   .query('activityLog')
-    //   .withIndex('by_task', (q) => q.eq('taskId', args.taskId))
-    //   .order('asc')
-    //   .collect()
-
-    // For stub/CI purposes, simplified implementation
-    const logs = await ctx.db.query('activityLog').order('desc').take(200)
-    return logs.filter((log: any) => log.taskId === (args as any).taskId)
+    const input = args as any
+    const { queryRef, usedIndex } = maybeWithIndex(
+      (ctx as QueryCtx).db.query('activityLog'),
+      'by_task',
+      (q) => q.eq('taskId', input.taskId),
+    )
+    const entries = await queryRef.order('asc').collect()
+    return usedIndex ? entries : entries.filter((entry: any) => entry.taskId === input.taskId)
   },
 })
 
@@ -28,17 +36,10 @@ export const getTaskActivity = query({
 export const getRecentActivity = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    const limit = (args as any)?.limit || 50
-
-    // In production, this will use:
-    // return await ctx.db
-    //   .query('activityLog')
-    //   .withIndex('by_timestamp')
-    //   .order('desc')
-    //   .take(limit)
-
-    // For stub/CI purposes, simplified implementation
-    return await ctx.db.query('activityLog').order('desc').take(limit)
+    const input = args as any
+    const limit = input.limit ?? 50
+    const { queryRef } = maybeWithIndex((ctx as QueryCtx).db.query('activityLog'), 'by_timestamp')
+    return await queryRef.order('desc').take(limit)
   },
 })
 

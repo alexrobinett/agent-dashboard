@@ -35,17 +35,32 @@ function makeMutableCtx(initialTasks: Record<string, unknown>[] = []) {
   return {
     ctx: {
       db: {
-        query: (table: string) => ({
-          order: (_dir: string) => ({
-            take: async (n: number) => {
-              const data = table === 'activityLog' ? logs : tasks
-              return data.slice(0, n)
+        query: (table: string) => {
+          const makeChain = (rows: any[]) => ({
+            withIndex: (_indexName: string, indexFn?: (q: any) => any) => {
+              let filtered = [...rows]
+              if (indexFn) {
+                const eqCalls: Array<{ field: string; value: unknown }> = []
+                const chain = {
+                  eq: (field: string, value: unknown) => {
+                    eqCalls.push({ field, value })
+                    return chain
+                  },
+                }
+                indexFn(chain)
+                for (const call of eqCalls) {
+                  filtered = filtered.filter((row) => row[call.field] === call.value)
+                }
+              }
+              return makeChain(filtered)
             },
-            collect: async () => {
-              return table === 'activityLog' ? logs : tasks
-            },
-          }),
-        }),
+            order: (_dir: string) => ({
+              take: async (n: number) => rows.slice(0, n),
+              collect: async () => rows,
+            }),
+          })
+          return makeChain(table === 'activityLog' ? logs : tasks)
+        },
         get: async (id: string) => tasks.find(t => t._id === id) ?? null,
         insert: async (table: string, doc: Record<string, unknown>) => {
           if (table === 'activityLog') {
