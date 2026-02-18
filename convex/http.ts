@@ -5,6 +5,62 @@ import { sendApnsPush } from './apns'
 const http = httpRouter()
 
 /**
+ * Require authentication via Authorization Bearer token.
+ * Validates the session token against the sessions table.
+ * Returns 401 JSON response if not authenticated, or null if valid.
+ */
+async function requireAuth(
+  ctx: any,
+  request: Request
+): Promise<Response | null> {
+  const authHeader = request.headers.get('Authorization')
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return withCors(
+      new Response(
+        JSON.stringify({ error: 'Unauthorized: missing or invalid token' }),
+        {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      ),
+      request.headers.get('Origin') || undefined
+    )
+  }
+
+  const token = authHeader.slice(7)
+  try {
+    const session = await ctx.runQuery(api.authSessions.validateToken, {
+      token,
+    })
+    if (!session) {
+      return withCors(
+        new Response(
+          JSON.stringify({ error: 'Unauthorized: invalid or expired session' }),
+          {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        ),
+        request.headers.get('Origin') || undefined
+      )
+    }
+  } catch {
+    return withCors(
+      new Response(
+        JSON.stringify({ error: 'Unauthorized: token validation failed' }),
+        {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      ),
+      request.headers.get('Origin') || undefined
+    )
+  }
+
+  return null // Authenticated
+}
+
+/**
  * Get allowed CORS origins from environment
  * Supports comma-separated list of origins
  * Falls back to wildcard (*) if not configured (development mode)

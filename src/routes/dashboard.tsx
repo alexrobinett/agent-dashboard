@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate, redirect } from '@tanstack/react-router'
 import { useQuery } from 'convex/react'
 import { convex } from '../lib/convex'
 import { api } from '../../convex/_generated/api'
@@ -20,10 +20,17 @@ import {
 import { ShortcutHint } from '../components/ShortcutHint'
 import { KeyboardShortcutsOverlay } from '../components/KeyboardShortcutsOverlay'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
+import { getSession } from '../lib/auth-middleware'
 
 type DashboardView = 'board' | 'workload'
 
 export const Route = createFileRoute('/dashboard')({
+  beforeLoad: async () => {
+    const session = await getSession()
+    if (!session) {
+      throw redirect({ to: '/login' })
+    }
+  },
   validateSearch: (search: Record<string, unknown>): { view?: DashboardView } => {
     return {
       view: search.view === 'workload' ? 'workload' : 'board',
