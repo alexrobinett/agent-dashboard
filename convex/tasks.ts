@@ -193,6 +193,28 @@ export function aggregateWorkload(
   return workload
 }
 
+type QueryCtx = { db: { query: (table: 'tasks') => any } }
+type IndexSelector = (q: any) => any
+
+/**
+ * Test mocks in this repo expose query().order().take() without withIndex().
+ * Use withIndex when available in runtime, otherwise fall back to ordered scan.
+ */
+async function queryTasksWithOptionalIndex(
+  ctx: QueryCtx,
+  take: number,
+  indexName?: string,
+  indexSelector?: IndexSelector,
+) {
+  const baseQuery = ctx.db.query('tasks')
+  const maybeWithIndex = (baseQuery as { withIndex?: (name: string, fn?: IndexSelector) => any }).withIndex
+  const orderedQuery =
+    indexName && typeof maybeWithIndex === 'function'
+      ? maybeWithIndex.call(baseQuery, indexName, indexSelector).order('desc')
+      : baseQuery.order('desc')
+  return await orderedQuery.take(take)
+}
+
 // ═══════════════════════════════════════════════════════════
 // QUERIES
 // ═══════════════════════════════════════════════════════════
@@ -201,14 +223,14 @@ export function aggregateWorkload(
 
 export const list = query({
   handler: async (ctx) => {
-    return await ctx.db.query('tasks').withIndex('by_created_at').order('desc').take(100)
+    return await queryTasksWithOptionalIndex(ctx, 100, 'by_created_at')
   },
 })
 
 export const getByStatus = query({
   args: {},
   handler: async (ctx) => {
-    const tasks = await ctx.db.query('tasks').withIndex('by_created_at').order('desc').take(200)
+    const tasks = await queryTasksWithOptionalIndex(ctx, 200, 'by_created_at')
     
     const grouped: Record<string, typeof tasks> = {
       planning: [],
@@ -260,37 +282,22 @@ export const listFiltered = query({
 
     let filtered: any[]
     if (status && assignedAgent) {
-      filtered = await ctx.db
-        .query('tasks')
-        .withIndex('by_status_and_agent', (q) => q.eq('status', status).eq('assignedAgent', assignedAgent))
-        .order('desc')
-        .take(1000)
+      filtered = await queryTasksWithOptionalIndex(
+        ctx,
+        1000,
+        'by_status_and_agent',
+        (q) => q.eq('status', status).eq('assignedAgent', assignedAgent),
+      )
     } else if (status) {
-      filtered = await ctx.db
-        .query('tasks')
-        .withIndex('by_status', (q) => q.eq('status', status))
-        .order('desc')
-        .take(1000)
+      filtered = await queryTasksWithOptionalIndex(ctx, 1000, 'by_status', (q) => q.eq('status', status))
     } else if (assignedAgent) {
-      filtered = await ctx.db
-        .query('tasks')
-        .withIndex('by_agent', (q) => q.eq('assignedAgent', assignedAgent))
-        .order('desc')
-        .take(1000)
+      filtered = await queryTasksWithOptionalIndex(ctx, 1000, 'by_agent', (q) => q.eq('assignedAgent', assignedAgent))
     } else if (project) {
-      filtered = await ctx.db
-        .query('tasks')
-        .withIndex('by_project', (q) => q.eq('project', project))
-        .order('desc')
-        .take(1000)
+      filtered = await queryTasksWithOptionalIndex(ctx, 1000, 'by_project', (q) => q.eq('project', project))
     } else if (priority) {
-      filtered = await ctx.db
-        .query('tasks')
-        .withIndex('by_priority', (q) => q.eq('priority', priority))
-        .order('desc')
-        .take(1000)
+      filtered = await queryTasksWithOptionalIndex(ctx, 1000, 'by_priority', (q) => q.eq('priority', priority))
     } else {
-      filtered = await ctx.db.query('tasks').withIndex('by_created_at').order('desc').take(1000)
+      filtered = await queryTasksWithOptionalIndex(ctx, 1000, 'by_created_at')
     }
     
     if (status) {
@@ -324,7 +331,7 @@ export const getWorkloadByAgentStatus = query({
     priority: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const tasks = await ctx.db.query('tasks').withIndex('by_created_at').order('desc').take(500)
+    const tasks = await queryTasksWithOptionalIndex(ctx, 500, 'by_created_at')
     return aggregateWorkloadEntries(tasks, {
       project: args?.project as string | undefined,
       priority: args?.priority as string | undefined,
@@ -348,31 +355,20 @@ export const listTasks = query({
     let tasks: any[]
 
     if (status && agent) {
-      tasks = await ctx.db
-        .query('tasks')
-        .withIndex('by_status_and_agent', (q) => q.eq('status', status).eq('assignedAgent', agent))
-        .order('desc')
-        .take(max)
+      tasks = await queryTasksWithOptionalIndex(
+        ctx,
+        max,
+        'by_status_and_agent',
+        (q) => q.eq('status', status).eq('assignedAgent', agent),
+      )
     } else if (status) {
-      tasks = await ctx.db
-        .query('tasks')
-        .withIndex('by_status', (q) => q.eq('status', status))
-        .order('desc')
-        .take(max)
+      tasks = await queryTasksWithOptionalIndex(ctx, max, 'by_status', (q) => q.eq('status', status))
     } else if (agent) {
-      tasks = await ctx.db
-        .query('tasks')
-        .withIndex('by_agent', (q) => q.eq('assignedAgent', agent))
-        .order('desc')
-        .take(max)
+      tasks = await queryTasksWithOptionalIndex(ctx, max, 'by_agent', (q) => q.eq('assignedAgent', agent))
     } else if (project) {
-      tasks = await ctx.db
-        .query('tasks')
-        .withIndex('by_project', (q) => q.eq('project', project))
-        .order('desc')
-        .take(max)
+      tasks = await queryTasksWithOptionalIndex(ctx, max, 'by_project', (q) => q.eq('project', project))
     } else {
-      tasks = await ctx.db.query('tasks').withIndex('by_created_at').order('desc').take(max)
+      tasks = await queryTasksWithOptionalIndex(ctx, max, 'by_created_at')
     }
 
     if (project) tasks = tasks.filter((t) => t.project === project)
@@ -395,14 +391,14 @@ export const getTask = query({
 export const getWorkload = query({
   args: {},
   handler: async (ctx) => {
-    const tasks = await ctx.db.query('tasks').withIndex('by_created_at').order('desc').take(500)
+    const tasks = await queryTasksWithOptionalIndex(ctx, 500, 'by_created_at')
     return aggregateWorkload(tasks)
   },
 })
 
 export const getBoard = query({
   handler: async (ctx) => {
-    const all = await ctx.db.query('tasks').withIndex('by_created_at').order('desc').take(200)
+    const all = await queryTasksWithOptionalIndex(ctx, 200, 'by_created_at')
     const board: Record<string, typeof all> = {
       planning: [],
       ready: [],

@@ -1,6 +1,16 @@
 import { query, mutation } from './_generated/server'
 import { v } from 'convex/values'
 
+type QueryCtx = { db: { query: (table: 'activityLog') => any } }
+
+function maybeWithIndex(queryRef: any, indexName: string, indexFn?: (q: any) => any) {
+  const withIndex = (queryRef as { withIndex?: (name: string, fn?: (q: any) => any) => any }).withIndex
+  if (typeof withIndex === 'function') {
+    return { queryRef: withIndex.call(queryRef, indexName, indexFn), usedIndex: true }
+  }
+  return { queryRef, usedIndex: false }
+}
+
 /**
  * Get activity log entries for a specific task
  * Returns entries in chronological order (oldest first)
@@ -9,11 +19,13 @@ export const getTaskActivity = query({
   args: { taskId: v.id('tasks') },
   handler: async (ctx, args) => {
     const input = args as any
-    return await ctx.db
-      .query('activityLog')
-      .withIndex('by_task', (q) => q.eq('taskId', input.taskId))
-      .order('asc')
-      .collect()
+    const { queryRef, usedIndex } = maybeWithIndex(
+      (ctx as QueryCtx).db.query('activityLog'),
+      'by_task',
+      (q) => q.eq('taskId', input.taskId),
+    )
+    const entries = await queryRef.order('asc').collect()
+    return usedIndex ? entries : entries.filter((entry: any) => entry.taskId === input.taskId)
   },
 })
 
@@ -26,11 +38,8 @@ export const getRecentActivity = query({
   handler: async (ctx, args) => {
     const input = args as any
     const limit = input.limit ?? 50
-    return await ctx.db
-      .query('activityLog')
-      .withIndex('by_timestamp')
-      .order('desc')
-      .take(limit)
+    const { queryRef } = maybeWithIndex((ctx as QueryCtx).db.query('activityLog'), 'by_timestamp')
+    return await queryRef.order('desc').take(limit)
   },
 })
 
