@@ -143,6 +143,53 @@ export default defineSchema({
     .index('by_task', ['taskId'])
     .index('by_timestamp', ['timestamp']),
 
+  // Better Auth tables
+  users: defineTable({
+    name: v.string(),
+    email: v.string(),
+    emailVerified: v.boolean(),
+    image: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index('by_email', ['email']),
+
+  sessions: defineTable({
+    expiresAt: v.number(),
+    token: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    ipAddress: v.optional(v.string()),
+    userAgent: v.optional(v.string()),
+    userId: v.id('users'),
+  })
+    .index('by_token', ['token'])
+    .index('by_userId', ['userId']),
+
+  accounts: defineTable({
+    accountId: v.string(),
+    providerId: v.string(),
+    userId: v.id('users'),
+    accessToken: v.optional(v.string()),
+    refreshToken: v.optional(v.string()),
+    idToken: v.optional(v.string()),
+    accessTokenExpiresAt: v.optional(v.number()),
+    refreshTokenExpiresAt: v.optional(v.number()),
+    scope: v.optional(v.string()),
+    password: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_providerId_accountId', ['providerId', 'accountId'])
+    .index('by_userId', ['userId']),
+
+  verifications: defineTable({
+    identifier: v.string(),
+    value: v.string(),
+    expiresAt: v.number(),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+  }).index('by_identifier', ['identifier']),
+
   // Push tokens for iOS push notifications
   pushTokens: defineTable({
     userId: v.string(),
