@@ -5,15 +5,14 @@
  * - EmptyState renders when data is empty
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import React from 'react'
 
 // --- ErrorBoundary Tests ---
 
 import { ErrorBoundary } from '../../components/ErrorBoundary'
 
-function ThrowingComponent({ error }: { error: Error }) {
+function ThrowingComponent({ error }: { error: Error }): never {
   throw error
 }
 

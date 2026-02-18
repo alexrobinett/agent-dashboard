@@ -1,35 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useConvexConnectionState } from 'convex/react'
 import { WifiOff } from 'lucide-react'
 
 /**
- * Detects Convex WebSocket disconnects by listening to browser online/offline
- * events and monitoring the Convex client connection state.
+ * Detects Convex WebSocket disconnects using the Convex useConvexConnectionState()
+ * hook, which accurately reflects the actual WebSocket connection state rather
+ * than relying on the browser's navigator.onLine API.
  */
 export function NetworkStatusBanner() {
-  const [isOffline, setIsOffline] = useState(false)
+  const { isWebSocketConnected } = useConvexConnectionState()
 
-  useEffect(() => {
-    // Only run on client
-    if (typeof window === 'undefined') return
-
-    const handleOffline = () => setIsOffline(true)
-    const handleOnline = () => setIsOffline(false)
-
-    // Check initial state
-    if (!navigator.onLine) {
-      setIsOffline(true)
-    }
-
-    window.addEventListener('offline', handleOffline)
-    window.addEventListener('online', handleOnline)
-
-    return () => {
-      window.removeEventListener('offline', handleOffline)
-      window.removeEventListener('online', handleOnline)
-    }
-  }, [])
-
-  if (!isOffline) return null
+  if (isWebSocketConnected) return null
 
   return (
     <div
