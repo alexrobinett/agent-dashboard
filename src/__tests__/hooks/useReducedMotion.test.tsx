@@ -79,7 +79,7 @@ describe('useReducedMotion hook', () => {
     const { mql, listeners } = createMatchMediaMock(false)
     window.matchMedia = vi.fn().mockReturnValue(mql)
 
-    const { result, rerender } = renderHook(() => useReducedMotion())
+    const { result } = renderHook(() => useReducedMotion())
     expect(result.current).toBe(false)
 
     // Simulate the OS switching to reduce mode — wrap in act() so React flushes state
