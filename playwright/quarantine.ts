@@ -30,6 +30,18 @@
  */
 
 import { test, type TestInfo } from '@playwright/test'
+import type {
+  PlaywrightTestArgs,
+  PlaywrightTestOptions,
+  PlaywrightWorkerArgs,
+  PlaywrightWorkerOptions,
+} from '@playwright/test'
+
+/** Explicit fixture type for Playwright test functions (avoids Parameters<> hack that resolves to never) */
+type PlaywrightTestFixtures = PlaywrightTestArgs &
+  PlaywrightTestOptions &
+  PlaywrightWorkerArgs &
+  PlaywrightWorkerOptions
 
 /** Shape of a quarantine registry entry */
 export interface QuarantineEntry {
@@ -73,7 +85,7 @@ export const QUARANTINE_REGISTRY: Record<string, QuarantineEntry> = {
 export function quarantine(
   ticketId: string,
   title: string,
-  fn: (fixtures: Parameters<Parameters<typeof test>[1]>[0], testInfo: TestInfo) => Promise<void> | void,
+  fn: (fixtures: PlaywrightTestFixtures, testInfo: TestInfo) => Promise<void> | void,
 ): void {
   const taggedTitle = `${title} [quarantine:${ticketId}]`
 
