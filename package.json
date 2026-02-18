@@ -81,5 +81,6 @@
       "better-sqlite3",
       "esbuild"
     ]
-  }
+  },
+  "version": "0.8.0"
 }
