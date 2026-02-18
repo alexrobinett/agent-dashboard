@@ -80,10 +80,7 @@
     "onlyBuiltDependencies": [
       "better-sqlite3",
       "esbuild"
-    ],
-    "overrides": {
-      "ajv": ">=8.18.0"
-    }
+    ]
   },
   "version": "0.8.0"
 }
