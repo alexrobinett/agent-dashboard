@@ -44,6 +44,9 @@ function requireArgs<T>(args: T | undefined): T {
 export const getUserTokens = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const input = requireArgs(args as UserArgs | undefined)
     return await getPushTokensQuery(ctx)
       .withIndex('by_user', (q) => q.eq('userId', input.userId))
@@ -57,6 +60,9 @@ export const getUserTokens = query({
 export const getDeviceToken = query({
   args: { deviceId: v.string() },
   handler: async (ctx, args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const input = requireArgs(args as DeviceArgs | undefined)
     return await getPushTokensQuery(ctx)
       .withIndex('by_device', (q) => q.eq('deviceId', input.deviceId))

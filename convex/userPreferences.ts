@@ -9,6 +9,9 @@ import { v } from 'convex/values'
 export const getUserPreferences = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const input = args as any
     return await ctx.db
       .query('userPreferences')

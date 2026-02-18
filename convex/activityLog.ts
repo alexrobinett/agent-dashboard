@@ -18,6 +18,9 @@ function maybeWithIndex(queryRef: any, indexName: string, indexFn?: (q: any) => 
 export const getTaskActivity = query({
   args: { taskId: v.id('tasks') },
   handler: async (ctx, args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const input = args as any
     const { queryRef, usedIndex } = maybeWithIndex(
       (ctx as QueryCtx).db.query('activityLog'),
@@ -36,6 +39,9 @@ export const getTaskActivity = query({
 export const getRecentActivity = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const input = args as any
     const limit = input.limit ?? 50
     const { queryRef } = maybeWithIndex((ctx as QueryCtx).db.query('activityLog'), 'by_timestamp')

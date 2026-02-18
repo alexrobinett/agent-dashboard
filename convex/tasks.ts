@@ -223,6 +223,9 @@ async function queryTasksWithOptionalIndex(
 
 export const list = query({
   handler: async (ctx) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     return await queryTasksWithOptionalIndex(ctx, 100, 'by_created_at')
   },
 })
@@ -230,6 +233,9 @@ export const list = query({
 export const getByStatus = query({
   args: {},
   handler: async (ctx) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const tasks = await queryTasksWithOptionalIndex(ctx, 200, 'by_created_at')
     
     const grouped: Record<string, typeof tasks> = {
@@ -257,6 +263,9 @@ export const getById = query({
     id: v.id('tasks'),
   },
   handler: async (ctx, args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const task = await ctx.db.get(args!.id)
     return task
   },
@@ -272,6 +281,9 @@ export const listFiltered = query({
     offset: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const limit = typeof args?.limit === 'number' ? args.limit : 50
     const offset = typeof args?.offset === 'number' ? args.offset : 0
     
@@ -331,6 +343,9 @@ export const getWorkloadByAgentStatus = query({
     priority: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const tasks = await queryTasksWithOptionalIndex(ctx, 500, 'by_created_at')
     return aggregateWorkloadEntries(tasks, {
       project: args?.project as string | undefined,
@@ -349,6 +364,9 @@ export const listTasks = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, _args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const { status, agent, project, limit } = (_args ?? {}) as any
 
     const max = limit ?? 100
@@ -382,6 +400,9 @@ export const listTasks = query({
 export const getTask = query({
   args: { taskId: v.id('tasks') },
   handler: async (ctx, _args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
 
       const {  taskId  } = _args as any
     return await ctx.db.get(taskId)
@@ -391,6 +412,9 @@ export const getTask = query({
 export const getWorkload = query({
   args: {},
   handler: async (ctx) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const tasks = await queryTasksWithOptionalIndex(ctx, 500, 'by_created_at')
     return aggregateWorkload(tasks)
   },
@@ -398,6 +422,9 @@ export const getWorkload = query({
 
 export const getBoard = query({
   handler: async (ctx) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const all = await queryTasksWithOptionalIndex(ctx, 200, 'by_created_at')
     const board: Record<string, typeof all> = {
       planning: [],
