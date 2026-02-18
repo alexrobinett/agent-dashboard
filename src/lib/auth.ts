@@ -12,15 +12,28 @@ if (process.env.NODE_ENV === 'production') {
     )
 }
 
+/**
+ * Whether GitHub OAuth is configured via environment variables.
+ * When false, the GitHub social provider is omitted from Better Auth
+ * entirely (preventing the "missing clientId or clientSecret" warning),
+ * and the login UI hides the GitHub button instead of showing a broken one.
+ */
+export const githubOAuthEnabled =
+  Boolean(process.env.GITHUB_CLIENT_ID) && Boolean(process.env.GITHUB_CLIENT_SECRET)
+
 export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL || process.env.PUBLIC_APP_URL || 'http://localhost:3000',
   secret: process.env.BETTER_AUTH_SECRET,
-  socialProviders: {
-    github: {
-      clientId: process.env.GITHUB_CLIENT_ID!,
-      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
-    },
-  },
+  ...(githubOAuthEnabled
+    ? {
+        socialProviders: {
+          github: {
+            clientId: process.env.GITHUB_CLIENT_ID!,
+            clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+          },
+        },
+      }
+    : {}),
   database: new Database(
     process.env.BETTER_AUTH_DB_URL ?? resolve(process.cwd(), 'better-auth.db'),
   ),

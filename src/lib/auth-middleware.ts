@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getRequest } from '@tanstack/react-start/server'
-import { auth } from './auth'
+import { auth, githubOAuthEnabled } from './auth'
 
 /**
  * Server function to get the current session.
@@ -10,6 +10,15 @@ import { auth } from './auth'
  * In CI/E2E environments (BETTER_AUTH_E2E_BYPASS=1), returns a synthetic
  * session so Playwright tests can access protected routes without OAuth.
  */
+/**
+ * Server function to check whether GitHub OAuth is configured.
+ * Called from the login route loader so the client can conditionally
+ * show or hide the GitHub sign-in button without exposing credentials.
+ */
+export const getGithubOAuthEnabled = createServerFn({ method: 'GET' }).handler(
+  async () => githubOAuthEnabled,
+)
+
 export const getSession = createServerFn({ method: 'GET' }).handler(
   async () => {
     // CI/E2E bypass: allows Playwright smoke tests to access protected routes.
