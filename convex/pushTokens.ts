@@ -78,6 +78,9 @@ export const registerToken = mutation({
     platform: v.literal('ios'),
   },
   handler: async (ctx, args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const input = requireArgs(args as PushTokenArgs | undefined)
     const now = Date.now()
     const existing = await getPushTokensQuery(ctx)
@@ -112,6 +115,9 @@ export const registerToken = mutation({
 export const deleteToken = mutation({
   args: { deviceId: v.string() },
   handler: async (ctx, args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const input = requireArgs(args as DeviceArgs | undefined)
     const token = await getPushTokensQuery(ctx)
       .withIndex('by_device', (q) => q.eq('deviceId', input.deviceId))
@@ -134,6 +140,9 @@ export const deleteToken = mutation({
 export const updateLastUsed = mutation({
   args: { deviceId: v.string() },
   handler: async (ctx, args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     const input = requireArgs(args as DeviceArgs | undefined)
     const token = await getPushTokensQuery(ctx)
       .withIndex('by_device', (q) => q.eq('deviceId', input.deviceId))

@@ -22,9 +22,12 @@ export const getGithubOAuthEnabled = createServerFn({ method: 'GET' }).handler(
 export const getSession = createServerFn({ method: 'GET' }).handler(
   async () => {
     // CI/E2E bypass: allows Playwright smoke tests to access protected routes.
-    // Set BETTER_AUTH_E2E_BYPASS=1 in the E2E workflow to enable.
-    // Guard: never active in production.
-    if (process.env.NODE_ENV !== 'production' && process.env.BETTER_AUTH_E2E_BYPASS === '1') {
+    // Requires BOTH: NODE_ENV=test (not just non-production) AND an explicit
+    // E2E_BYPASS_AUTH=true flag, so this never fires in dev or arbitrary test runs.
+    // [security] Dual-condition guard prevents accidental activation outside true E2E runs.
+    const isE2EBypass =
+      process.env.NODE_ENV === 'test' && process.env.E2E_BYPASS_AUTH === 'true'
+    if (isE2EBypass) {
       return {
         user: { id: 'e2e-user', email: 'e2e@ci.local', name: 'E2E CI User' },
         session: { id: 'e2e-session', userId: 'e2e-user', expiresAt: new Date(Date.now() + 3_600_000) },

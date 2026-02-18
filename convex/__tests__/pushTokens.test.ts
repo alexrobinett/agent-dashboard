@@ -4,6 +4,7 @@ import type { Doc, Id } from '../_generated/dataModel'
 vi.mock('../_generated/server', () => ({
   query: (config: Record<string, unknown>) => config,
   mutation: (config: Record<string, unknown>) => config,
+  internalMutation: (config: Record<string, unknown>) => config,
 }))
 
 import * as pushTokenModule from '../pushTokens'
@@ -62,6 +63,8 @@ type MockCtx = {
     patch: (id: PushTokenId, fields: Partial<PushTokenFields>) => Promise<void>
     delete: (id: PushTokenId) => Promise<void>
   }
+  // [security] auth mock for getUserIdentity guards (j57bds0a8vv8qk349dqsnfw65h81d99x)
+  auth: { getUserIdentity: () => Promise<{ tokenIdentifier: string; subject: string; issuer: string } | null> }
   _tokens: PushTokenDoc[]
   _indexCalls: IndexCall[]
   _patches: Array<{ id: PushTokenId; fields: Partial<PushTokenFields> }>
@@ -142,6 +145,10 @@ function makeCtx(initialTokens: PushTokenDoc[]): MockCtx {
           tokens.splice(index, 1)
         }
       },
+    },
+    // [security] Mock auth for getUserIdentity guards (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    auth: {
+      getUserIdentity: async () => ({ tokenIdentifier: 'test|user', subject: 'test-user', issuer: 'test' }),
     },
     _tokens: tokens,
     _indexCalls: indexCalls,

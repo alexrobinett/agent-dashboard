@@ -7,6 +7,8 @@ import type { Doc, Id } from '../_generated/dataModel'
 vi.mock('../_generated/server', () => ({
   query: (config: Record<string, unknown>) => config,
   mutation: (config: Record<string, unknown>) => config,
+  // [security] internalMutation added for create/update/remove (j57bds0a8vv8qk349dqsnfw65h81d99x)
+  internalMutation: (config: Record<string, unknown>) => config,
 }))
 
 // Import AFTER mocking — each export is now { args, handler }
@@ -114,6 +116,10 @@ function mockCtx(tasks: Task[]) {
     },
     runMutation: async (mutation: unknown, args: Record<string, unknown>) => {
       runMutations.push({ mutation, args })
+    },
+    // [security] Mock auth for getUserIdentity guards (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    auth: {
+      getUserIdentity: async () => ({ tokenIdentifier: 'test|user', subject: 'test-user', issuer: 'test' }),
     },
   }
   return ctx

@@ -7,6 +7,7 @@ import type { Doc, Id } from '../_generated/dataModel'
 vi.mock('../_generated/server', () => ({
   query: (config: Record<string, unknown>) => config,
   mutation: (config: Record<string, unknown>) => config,
+  internalMutation: (config: Record<string, unknown>) => config,
 }))
 
 // Import AFTER mocking
