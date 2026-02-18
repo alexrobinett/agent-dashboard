@@ -1,5 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
-import { getWebRequest } from '@tanstack/react-start/server'
+import { getRequest } from '@tanstack/react-start/server'
 import { auth } from './auth'
 
 /**
@@ -8,7 +8,7 @@ import { auth } from './auth'
  */
 export const getSession = createServerFn({ method: 'GET' }).handler(
   async () => {
-    const request = getWebRequest()
+    const request = getRequest()
     const session = await auth.api.getSession({
       headers: request.headers,
     })

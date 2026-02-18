@@ -6,11 +6,11 @@ const http = httpRouter()
 
 /**
  * Require authentication via Authorization Bearer token.
- * Validates the session token against the sessions table.
+ * Validates the Bearer token against the CONVEX_API_SECRET_KEY env variable.
  * Returns 401 JSON response if not authenticated, or null if valid.
  */
 async function requireAuth(
-  ctx: any,
+  _ctx: unknown,
   request: Request
 ): Promise<Response | null> {
   const authHeader = request.headers.get('Authorization')
@@ -28,26 +28,17 @@ async function requireAuth(
   }
 
   const token = authHeader.slice(7)
-  try {
-    const session = await ctx.runQuery(api.authSessions.validateToken, {
-      token,
-    })
-    if (!session) {
-      return withCors(
-        new Response(
-          JSON.stringify({ error: 'Unauthorized: invalid or expired session' }),
-          {
-            status: 401,
-            headers: { 'Content-Type': 'application/json' },
-          }
-        ),
-        request.headers.get('Origin') || undefined
-      )
-    }
-  } catch {
+  const apiKey = process.env.CONVEX_API_SECRET_KEY
+
+  // If no API key is configured, allow all requests (dev/open mode)
+  if (!apiKey) {
+    return null // No key configured — open access
+  }
+
+  if (token !== apiKey) {
     return withCors(
       new Response(
-        JSON.stringify({ error: 'Unauthorized: token validation failed' }),
+        JSON.stringify({ error: 'Unauthorized: invalid or expired token' }),
         {
           status: 401,
           headers: { 'Content-Type': 'application/json' },
@@ -122,7 +113,10 @@ function withCors(response: Response, requestOrigin?: string): Response {
 http.route({
   path: '/api/board',
   method: 'GET',
-  handler: httpActionGeneric(async (ctx) => {
+  handler: httpActionGeneric(async (ctx, request) => {
+    const authError = await requireAuth(ctx, request)
+    if (authError) return authError
+
     // Query tasks grouped by status
     const board = await ctx.runQuery(api.tasks.getByStatus, {})
     
@@ -184,6 +178,9 @@ http.route({
   path: '/api/tasks',
   method: 'GET',
   handler: httpActionGeneric(async (ctx, request) => {
+    const authError = await requireAuth(ctx, request)
+    if (authError) return authError
+
     // Parse query parameters from URL
     const url = new URL(request.url)
     const status = url.searchParams.get('status') || undefined
@@ -240,7 +237,10 @@ http.route({
 http.route({
   path: '/api/workload',
   method: 'GET',
-  handler: httpActionGeneric(async (ctx) => {
+  handler: httpActionGeneric(async (ctx, request) => {
+    const authError = await requireAuth(ctx, request)
+    if (authError) return authError
+
     // Query workload aggregation
     const workload = await ctx.runQuery(api.tasks.getWorkload, {})
     
@@ -277,6 +277,7 @@ http.route({
  * Health check endpoint
  * GET /api/health
  * Returns: { status: "ok", timestamp: "<ISO string>" }
+ * Note: intentionally public — no auth required
  */
 http.route({
   path: '/api/health',
@@ -320,6 +321,9 @@ http.route({
   pathPrefix: '/api/tasks/',
   method: 'GET',
   handler: httpActionGeneric(async (ctx, request) => {
+    const authError = await requireAuth(ctx, request)
+    if (authError) return authError
+
     // Extract task ID from URL path
     const url = new URL(request.url)
     const pathParts = url.pathname.split('/')
@@ -328,7 +332,7 @@ http.route({
     try {
       // Query single task
       const task = await ctx.runQuery(api.tasks.getById, {
-        id: taskId as any,
+        id: taskId as never,
       })
       
       if (!task) {
@@ -382,6 +386,9 @@ http.route({
   path: '/api/tasks',
   method: 'POST',
   handler: httpActionGeneric(async (ctx, request) => {
+    const authError = await requireAuth(ctx, request)
+    if (authError) return authError
+
     try {
       // Parse request body
       const body = await request.json()
@@ -478,6 +485,9 @@ http.route({
   pathPrefix: '/api/tasks/',
   method: 'PATCH',
   handler: httpActionGeneric(async (ctx, request) => {
+    const authError = await requireAuth(ctx, request)
+    if (authError) return authError
+
     // Extract task ID from URL path
     const url = new URL(request.url)
     const pathParts = url.pathname.split('/')
@@ -489,7 +499,7 @@ http.route({
       
       // Update task
       const result = await ctx.runMutation(api.tasks.update, {
-        id: taskId as any,
+        id: taskId as never,
         status: body.status,
         priority: body.priority,
         assignedAgent: body.assignedAgent,

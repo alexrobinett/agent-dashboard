@@ -1,11 +1,15 @@
-import { createAPIFileRoute } from '@tanstack/react-start/api'
+import { createFileRoute } from '@tanstack/react-router'
 import { auth } from '../../../lib/auth'
 
-export const Route = createAPIFileRoute('/api/auth/$')({
-  GET: async ({ request }) => {
-    return auth.handler(request)
-  },
-  POST: async ({ request }) => {
-    return auth.handler(request)
+/**
+ * Catch-all route handler for Better Auth at /api/auth/*
+ * Delegates all GET and POST requests to the Better Auth handler.
+ */
+export const Route = createFileRoute('/api/auth/$')({
+  server: {
+    handlers: {
+      GET: ({ request }: { request: Request }) => auth.handler(request),
+      POST: ({ request }: { request: Request }) => auth.handler(request),
+    },
   },
 })
