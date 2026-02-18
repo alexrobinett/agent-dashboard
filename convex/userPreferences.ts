@@ -2,29 +2,33 @@ import { query, mutation } from './_generated/server'
 import { v } from 'convex/values'
 
 /**
- * Get user preferences by userId
- * 
- * Note: This uses the by_user index defined in schema.ts
+ * Get user preferences for the currently authenticated user.
+ *
+ * [security] userId is derived from the auth identity (identity.subject),
+ * never from caller-supplied arguments. This prevents IDOR — any authenticated
+ * user can only read their own preferences.
  */
 export const getUserPreferences = query({
-  args: { userId: v.string() },
-  handler: async (ctx, args) => {
-    const input = args as any
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
     return await ctx.db
       .query('userPreferences')
-      .withIndex('by_user', (q) => q.eq('userId', input.userId))
+      .withIndex('by_user', (q) => q.eq('userId', identity.subject))
       .first()
   },
 })
 
 /**
- * Create or update user preferences
- * 
- * Upserts preferences for a given user
+ * Create or update user preferences for the currently authenticated user.
+ *
+ * [security] userId is derived from the auth identity (identity.subject),
+ * never from caller-supplied arguments. This prevents IDOR — authenticated
+ * user A cannot overwrite user B's preferences by injecting a foreign userId.
  */
 export const setUserPreferences = mutation({
   args: {
-    userId: v.string(),
     defaultView: v.union(
       v.literal('kanban'),
       v.literal('list'),
@@ -35,33 +39,33 @@ export const setUserPreferences = mutation({
     notificationEnabled: v.boolean(),
   },
   handler: async (ctx, args) => {
-    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const { defaultView, filterProject, filterAgent, notificationEnabled } = args!
     const identity = await ctx.auth.getUserIdentity()
     if (!identity) throw new Error('Unauthenticated')
-    const input = args as any
+    const userId = identity.subject // Always use auth identity, never caller-supplied
     const now = Date.now()
     const existing = await ctx.db
       .query('userPreferences')
-      .withIndex('by_user', (q) => q.eq('userId', input.userId))
+      .withIndex('by_user', (q) => q.eq('userId', userId))
       .first()
 
     if (existing) {
       await ctx.db.patch(existing._id, {
-        defaultView: input.defaultView,
-        filterProject: input.filterProject,
-        filterAgent: input.filterAgent,
-        notificationEnabled: input.notificationEnabled,
+        defaultView,
+        filterProject,
+        filterAgent,
+        notificationEnabled,
         updatedAt: now,
       })
       return existing._id
     }
 
     return await ctx.db.insert('userPreferences', {
-      userId: input.userId,
-      defaultView: input.defaultView,
-      filterProject: input.filterProject,
-      filterAgent: input.filterAgent,
-      notificationEnabled: input.notificationEnabled,
+      userId,
+      defaultView,
+      filterProject,
+      filterAgent,
+      notificationEnabled,
       createdAt: now,
       updatedAt: now,
     })
