@@ -1,21 +1,53 @@
 import { query, mutation } from './_generated/server'
 import { v } from 'convex/values'
 
+type PushTokenArgs = {
+  userId: string
+  deviceId: string
+  token: string
+  platform: 'ios'
+}
+
+type DeviceArgs = { deviceId: string }
+type UserArgs = { userId: string }
+type IndexField = 'userId' | 'deviceId'
+type IndexName = 'by_user' | 'by_device'
+
+type PushTokenRecord = {
+  _id: unknown
+}
+
+type PushTokenQuery = {
+  withIndex: (
+    indexName: IndexName,
+    indexFn: (q: { eq: (field: IndexField, value: string) => unknown }) => unknown
+  ) => {
+    collect: () => Promise<unknown[]>
+    first: () => Promise<PushTokenRecord | null>
+  }
+}
+
+function getPushTokensQuery(ctx: { db: { query: (table: string) => unknown } }): PushTokenQuery {
+  return ctx.db.query('pushTokens') as PushTokenQuery
+}
+
+function requireArgs<T>(args: T | undefined): T {
+  if (!args) {
+    throw new Error('Missing args')
+  }
+  return args
+}
+
 /**
  * Get all push tokens for a specific user
  */
 export const getUserTokens = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
-    // In production, this will use:
-    // return await ctx.db
-    //   .query('pushTokens')
-    //   .withIndex('by_user', (q) => q.eq('userId', args.userId))
-    //   .collect()
-
-    // For stub/CI purposes, simplified implementation
-    const tokens = await ctx.db.query('pushTokens').order('desc').take(100)
-    return tokens.filter((t: any) => t.userId === (args as any).userId)
+    const input = requireArgs(args as UserArgs | undefined)
+    return await getPushTokensQuery(ctx)
+      .withIndex('by_user', (q) => q.eq('userId', input.userId))
+      .collect()
   },
 })
 
@@ -25,15 +57,10 @@ export const getUserTokens = query({
 export const getDeviceToken = query({
   args: { deviceId: v.string() },
   handler: async (ctx, args) => {
-    // In production, this will use:
-    // return await ctx.db
-    //   .query('pushTokens')
-    //   .withIndex('by_device', (q) => q.eq('deviceId', args.deviceId))
-    //   .first()
-
-    // For stub/CI purposes, simplified implementation
-    const tokens = await ctx.db.query('pushTokens').order('desc').take(100)
-    return tokens.find((t: any) => t.deviceId === (args as any).deviceId) || null
+    const input = requireArgs(args as DeviceArgs | undefined)
+    return await getPushTokensQuery(ctx)
+      .withIndex('by_device', (q) => q.eq('deviceId', input.deviceId))
+      .first()
   },
 })
 
@@ -51,16 +78,28 @@ export const registerToken = mutation({
     platform: v.literal('ios'),
   },
   handler: async (ctx, args) => {
-    const a = args as any
+    const input = requireArgs(args as PushTokenArgs | undefined)
     const now = Date.now()
+    const existing = await getPushTokensQuery(ctx)
+      .withIndex('by_device', (q) => q.eq('deviceId', input.deviceId))
+      .first()
 
-    // In production, would check for existing token by device
-    // For stub/CI, simplified implementation
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        userId: input.userId,
+        deviceId: input.deviceId,
+        token: input.token,
+        platform: input.platform,
+        lastUsedAt: now,
+      })
+      return existing._id
+    }
+
     return await ctx.db.insert('pushTokens', {
-      userId: a.userId,
-      deviceId: a.deviceId,
-      token: a.token,
-      platform: a.platform,
+      userId: input.userId,
+      deviceId: input.deviceId,
+      token: input.token,
+      platform: input.platform,
       createdAt: now,
       lastUsedAt: now,
     })
@@ -72,17 +111,17 @@ export const registerToken = mutation({
  */
 export const deleteToken = mutation({
   args: { deviceId: v.string() },
-  handler: async (_ctx, _args) => {
-    // In production, this would:
-    // const token = await ctx.db
-    //   .query('pushTokens')
-    //   .withIndex('by_device', (q) => q.eq('deviceId', args.deviceId))
-    //   .first()
-    // if (token) {
-    //   await ctx.db.delete(token._id)
-    // }
+  handler: async (ctx, args) => {
+    const input = requireArgs(args as DeviceArgs | undefined)
+    const token = await getPushTokensQuery(ctx)
+      .withIndex('by_device', (q) => q.eq('deviceId', input.deviceId))
+      .first()
 
-    // For stub/CI purposes, this is a no-op
+    if (!token) {
+      return { deleted: false }
+    }
+
+    await ctx.db.delete(token._id)
     return { deleted: true }
   },
 })
@@ -94,17 +133,17 @@ export const deleteToken = mutation({
  */
 export const updateLastUsed = mutation({
   args: { deviceId: v.string() },
-  handler: async (_ctx, _args) => {
-    // In production, this would:
-    // const token = await ctx.db
-    //   .query('pushTokens')
-    //   .withIndex('by_device', (q) => q.eq('deviceId', args.deviceId))
-    //   .first()
-    // if (token) {
-    //   await ctx.db.patch(token._id, { lastUsedAt: Date.now() })
-    // }
+  handler: async (ctx, args) => {
+    const input = requireArgs(args as DeviceArgs | undefined)
+    const token = await getPushTokensQuery(ctx)
+      .withIndex('by_device', (q) => q.eq('deviceId', input.deviceId))
+      .first()
 
-    // For stub/CI purposes, this is a no-op
+    if (!token) {
+      return { updated: false }
+    }
+
+    await ctx.db.patch(token._id, { lastUsedAt: Date.now() })
     return { updated: true }
   },
 })
