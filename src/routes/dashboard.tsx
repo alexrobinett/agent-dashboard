@@ -5,6 +5,7 @@ import { api } from '../../convex/_generated/api'
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFilters } from '../hooks/useFilters'
 import { useSearch } from '../hooks/useSearch'
+import { useReducedMotion } from '../hooks/useReducedMotion'
 import { FilterBar } from '../components/FilterBar'
 import { WorkloadChart, type WorkloadData } from '../components/WorkloadChart'
 import { KanbanBoard } from '../components/KanbanBoard'
@@ -191,6 +192,7 @@ function DashboardBoard({
 }) {
   const statusOrder = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
   const { filters, setFilter, clearFilters, hasActiveFilters } = useFilters()
+  const reducedMotion = useReducedMotion()
   const navigate = useNavigate()
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [isNewTaskOpen, setIsNewTaskOpen] = useState(false)
@@ -309,7 +311,7 @@ function DashboardBoard({
           <div className="text-sm text-muted-foreground">
             <span
               data-testid="live-indicator"
-              className="inline-block w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"
+              className={`inline-block w-2 h-2 bg-green-500 rounded-full mr-2${reducedMotion ? '' : ' animate-pulse'}`}
             ></span>
             Live
           </div>
@@ -421,10 +423,13 @@ function DashboardBoard({
 }
 
 function DashboardPendingComponent() {
+  const reducedMotion = useReducedMotion()
   return (
     <div className="min-h-screen bg-background flex items-center justify-center">
       <div className="text-center">
-        <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent mb-4"></div>
+        <div
+          className={`inline-block h-8 w-8 rounded-full border-4 border-solid border-primary border-r-transparent mb-4${reducedMotion ? '' : ' animate-spin'}`}
+        ></div>
         <p className="text-muted-foreground">Loading dashboard...</p>
       </div>
     </div>
