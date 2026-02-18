@@ -69,12 +69,12 @@ export function sanitizeOptionalText(value: string | undefined, maxLen = 4000): 
 }
 
 async function queueTaskDoneNotification(
-  ctx: unknown,
+  ctx: { runMutation: (mutation: unknown, args: { taskId: Id<'tasks'>; agentName: string }) => Promise<unknown> },
   taskId: Id<'tasks'>,
   taskBeforeUpdate: { assignedAgent?: string | undefined },
 ) {
   if (!taskBeforeUpdate.assignedAgent) return
-  await (ctx as any).runMutation(internal.notifications.notifyTaskDone, {
+  await ctx.runMutation(internal.notifications.notifyTaskDone, {
     taskId,
     agentName: taskBeforeUpdate.assignedAgent,
   })
@@ -345,7 +345,7 @@ export const listTasks = query({
     const { status, agent, project, limit } = (_args ?? {}) as any
 
     const max = limit ?? 100
-    let tasks: any[] = []
+    let tasks: any[]
 
     if (status && agent) {
       tasks = await ctx.db
@@ -837,7 +837,13 @@ export const update = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const input = args as any
+    const input = args as unknown as {
+      id: Id<'tasks'>
+      status?: string
+      priority?: string
+      assignedAgent?: string
+      notes?: string
+    }
     const task = await ctx.db.get(input.id)
     if (!task) {
       throw new Error(`Task not found: ${input.id}`)

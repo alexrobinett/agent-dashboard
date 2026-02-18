@@ -53,7 +53,12 @@ describe('notifications.notifyTaskDone', () => {
     expect(insert).toHaveBeenCalledWith('activityLog', {
       type: 'push_queued',
       taskId: 'task-1',
-      agentName: 'forge',
+      actor: 'system',
+      actorType: 'system',
+      action: 'updated',
+      metadata: {
+        notes: 'Queued push notification for forge',
+      },
       timestamp: 1_750_000_000_000,
     })
   })
