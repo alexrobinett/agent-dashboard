@@ -20,7 +20,9 @@
     "lint:fix": "eslint src/ convex/ --ext .ts,.tsx --fix",
     "typecheck": "tsc --noEmit",
     "convex:dev": "convex dev",
-    "convex:deploy": "convex deploy"
+    "convex:deploy": "convex deploy",
+    "test:visual": "playwright test e2e/tests/visual.spec.ts",
+    "test:visual:update": "playwright test e2e/tests/visual.spec.ts --update-snapshots"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
