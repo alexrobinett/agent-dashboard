@@ -29,6 +29,8 @@ export default defineConfig({
     ['github'],
     ['list'],
     ['json', { outputFile: 'test-results/results.json' }],
+    // JUnit XML output for flake-report.sh parsing
+    ['junit', { outputFile: 'test-results/results.xml' }],
   ],
   
   /* Shared settings for all the projects below */
