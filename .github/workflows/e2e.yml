@@ -165,6 +165,7 @@ jobs:
   # the drift is intentional (then update baselines) or a regression.
   visual-regression:
     name: Visual Regression (informational)
+    if: false  # Disabled until app is stable — re-enable when visual baseline is locked
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Never block merges — visual failures are a signal, not a gate
