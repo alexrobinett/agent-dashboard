@@ -207,14 +207,50 @@ export function formatPriority(priority: string): string {
 
 Tests should still **pass** after refactoring.
 
+## Pre-Push Quality Gate
+
+A repo-managed git hook blocks pushes that introduce **new** regressions.
+The hook compares your branch against committed baselines so pre-existing
+failures on `main` never block your push.
+
+### Install the hook (once per clone)
+
+```bash
+pnpm hooks:install
+# or:  bash scripts/install-hooks.sh
+```
+
+### What the hook checks
+
+| Check | Fail condition |
+|-------|---------------|
+| TypeScript typecheck | Error count **increases** vs baseline |
+| Unit tests (`pnpm test`) | Any test **fails** |
+| E2E smoke (`e2e/tests/dashboard.spec.ts`) | Failure count **increases** vs baseline |
+
+### Bypass options
+
+```bash
+SKIP_E2E_SMOKE=1 git push    # skip E2E only (document reason in PR body)
+git push --no-verify          # skip all hooks (emergencies only)
+```
+
+### Updating baselines (maintainers only)
+
+Run on `main` after intentional regressions are resolved:
+
+```bash
+bash scripts/update-baselines.sh
+git add scripts/baselines/ && git commit -m "chore: update pre-push baselines"
+```
+
 ## Pre-Commit Checklist
 
 Before committing code:
 
-- [ ] All tests pass (`npm test`)
-- [ ] Code is linted (`npm run lint`)
-- [ ] TypeScript compiles (`npm run typecheck`)
-- [ ] Coverage thresholds met (`npm run test:coverage`)
+- [ ] All tests pass (`pnpm test`)
+- [ ] Code is linted (`pnpm lint`)
+- [ ] TypeScript compiles (`pnpm typecheck`)
 - [ ] Code is refactored and clean
 - [ ] Meaningful commit message
 
