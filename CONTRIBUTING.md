@@ -265,9 +265,44 @@ Our GitHub Actions workflow runs:
 
 All checks must pass before merging.
 
+## E2E Testing & Flake Policy
+
+> **Full details**: see [`docs/testing.md`](./docs/testing.md)
+
+### Playwright Retries
+
+- **CI**: tests retry up to **2 times** before being counted as failed.
+- **Local**: 0 retries — failures are immediate for fast feedback.
+
+### Flake Budget (≤ 2%)
+
+A test that fails on attempt 1 but passes on retry is **flaky**.
+The nightly E2E suite enforces a **≤ 2% flake rate** via `scripts/flake-report.sh`.
+If the budget is exceeded, CI fails and the flaky tests are listed.
+
+### Quarantining Flaky Tests
+
+When a test is persistently flaky but can't be fixed immediately:
+
+1. File or reference a ticket (e.g. `FLAKE-042`).
+2. Register it in `playwright/quarantine.ts`.
+3. Wrap the test with the `quarantine()` helper:
+
+```ts
+import { quarantine } from '../../playwright/quarantine'
+
+quarantine('FLAKE-042', 'my flaky test', async ({ page }) => {
+  // test body unchanged
+})
+```
+
+Quarantined tests still run but are excluded from the flake-budget check.
+Review and un-quarantine at each sprint start.
+
 ## Questions?
 
 - Check the [README](./README.md) for setup instructions
+- See [`docs/testing.md`](./docs/testing.md) for the full testing guide
 - Review existing tests for examples
 - Ask in GitHub issues or discussions
 

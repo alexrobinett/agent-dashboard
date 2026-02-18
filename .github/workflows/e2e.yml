@@ -99,6 +99,25 @@ jobs:
         env:
           CI: true
 
+      # ── Flake-budget enforcement ────────────────────────────────────────────
+      # Runs after nightly/full suite (retries=2 in CI).
+      # Tests that eventually passed after retry are counted as "flaky".
+      # Budget: flaky rate must stay ≤ 2%.  Quarantined tests are excluded.
+      - name: Flake-budget report (nightly/full)
+        if: github.event_name != 'pull_request' && always()
+        run: bash scripts/flake-report.sh test-results/results.xml
+        env:
+          FLAKE_BUDGET_PCT: "2"
+
+      # PR smoke also gets a (non-failing) flake report for visibility.
+      # We use FLAKE_REPORT_ONLY=1 so it never blocks a PR merge on its own.
+      - name: Flake-budget report (PR smoke — informational)
+        if: github.event_name == 'pull_request' && always()
+        run: bash scripts/flake-report.sh test-results/results.xml
+        env:
+          FLAKE_BUDGET_PCT: "2"
+          FLAKE_REPORT_ONLY: "1"
+
       - name: Upload HTML report
         uses: actions/upload-artifact@v4
         if: always()
