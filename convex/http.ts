@@ -1,5 +1,6 @@
 import { httpRouter, httpActionGeneric } from 'convex/server'
 import { api } from './_generated/api'
+import { sendApnsPush } from './apns'
 
 const http = httpRouter()
 
@@ -481,6 +482,17 @@ http.route({
       })
     )
   }),
+})
+
+/**
+ * APNS push endpoint
+ * POST /api/push/send
+ * Body: { deviceToken, title, body, data? }
+ */
+http.route({
+  path: '/api/push/send',
+  method: 'POST',
+  handler: sendApnsPush,
 })
 
 // Export the HTTP router
