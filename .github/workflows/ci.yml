@@ -8,7 +8,7 @@ on:
 
 env:
   # Dev Convex deployment — safe for CI builds and E2E tests (not prod)
-  VITE_CONVEX_URL: https://tacit-bulldog-295.convex.cloud
+  VITE_CONVEX_URL: https://curious-dolphin-134.convex.cloud
 
 jobs:
   lint:
