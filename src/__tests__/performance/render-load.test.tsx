@@ -23,7 +23,8 @@ describe('Dashboard UI render performance/load', () => {
   it('renders 120 task cards with p95 interactive render time under 2s', async () => {
     const samples: number[] = []
 
-    for (let sampleIndex = 0; sampleIndex < 5; sampleIndex += 1) {
+    // 20 samples minimum for a statistically valid p95 (5 samples ≡ max, not p95).
+    for (let sampleIndex = 0; sampleIndex < 20; sampleIndex += 1) {
       const tasks = createMockTasksByStatus(20)
       const groupedTasks = groupTasksByStatus(tasks)
 

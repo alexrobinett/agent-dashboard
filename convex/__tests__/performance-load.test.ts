@@ -10,9 +10,13 @@ import * as taskModule from '../tasks'
 
 type Task = Doc<'tasks'>
 type TaskId = Id<'tasks'>
-type HandlerExtractor = { handler: (...args: any[]) => Promise<any> }
 
-const getByStatusHandler = (taskModule.getByStatus as unknown as HandlerExtractor).handler
+/** Typed helper to extract the handler function from a mocked Convex query config. */
+function queryHandler(q: unknown): (ctx: any, args: any) => Promise<any> {
+  return (q as { handler: (ctx: any, args: any) => Promise<any> }).handler
+}
+
+const getByStatusHandler = queryHandler(taskModule.getByStatus)
 
 const QUERY_P95_THRESHOLD_MS = 500
 
@@ -42,22 +46,21 @@ function makeTask(idx: number): Task {
   } as Task
 }
 
-function mockCtx(tasks: Task[], latencyMs: number) {
+/**
+ * Build a mock Convex ctx with 0 injected delay.
+ * We measure only the real JS execution time of the handler — grouping 120 tasks
+ * by status — without any artificial sleep that would make the test tautological.
+ */
+function mockCtx(tasks: Task[]) {
   return {
     db: {
       query: (_table: string) => ({
         order: (_dir: string) => ({
-          take: async (n: number) => {
-            await new Promise((resolve) => setTimeout(resolve, latencyMs))
-            return tasks.slice(0, n)
-          },
+          take: async (n: number) => tasks.slice(0, n),
         }),
         withIndex: (_indexName: string, _indexFn?: (q: any) => any) => ({
           order: (_dir: string) => ({
-            take: async (n: number) => {
-              await new Promise((resolve) => setTimeout(resolve, latencyMs))
-              return tasks.slice(0, n)
-            },
+            take: async (n: number) => tasks.slice(0, n),
           }),
         }),
       }),
@@ -68,14 +71,14 @@ function mockCtx(tasks: Task[], latencyMs: number) {
 describe('Convex query performance/load', () => {
   it('computes p50/p95 for getByStatus with 120 tasks and enforces latency threshold', async () => {
     const tasks = Array.from({ length: 120 }, (_, idx) => makeTask(idx))
+    const ctx = mockCtx(tasks)
     const samples: number[] = []
 
+    // 30 samples give a statistically meaningful p95 (vs 5 samples where p95 == max).
     for (let sampleIndex = 0; sampleIndex < 30; sampleIndex += 1) {
-      const simulatedLatencyMs = 45 + (sampleIndex % 9) * 18
-      const ctx = mockCtx(tasks, simulatedLatencyMs)
       const start = performance.now()
       const result = await getByStatusHandler(ctx, {})
-      const durationMs = performance.now() - start
+      const elapsed = performance.now() - start
 
       const totalTasks =
         result.planning.length +
@@ -86,7 +89,7 @@ describe('Convex query performance/load', () => {
         result.blocked.length
 
       expect(totalTasks).toBe(120)
-      samples.push(durationMs)
+      samples.push(elapsed)
     }
 
     const p50 = percentile(samples, 50)
