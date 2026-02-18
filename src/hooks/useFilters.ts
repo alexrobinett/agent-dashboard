@@ -29,11 +29,19 @@ function parseSearchParams(): FilterState {
 
 function syncToURL(filters: FilterState) {
   if (typeof window === 'undefined') return
-  const params = new URLSearchParams()
+  const params = new URLSearchParams(window.location.search)
+
   if (filters.project) params.set('project', filters.project)
+  else params.delete('project')
+
   if (filters.agent) params.set('agent', filters.agent)
+  else params.delete('agent')
+
   if (filters.priority) params.set('priority', filters.priority)
+  else params.delete('priority')
+
   if (filters.search) params.set('search', filters.search)
+  else params.delete('search')
 
   const search = params.toString()
   const newURL = search

@@ -18,6 +18,7 @@ export function TaskCard({ task }: TaskCardProps) {
     id: task._id,
     data: { task },
   })
+  const { tabIndex: _ignoredTabIndex, ...draggableAttributes } = attributes
 
   const style: React.CSSProperties = {
     borderLeftColor: getPriorityColor(task.priority),
@@ -31,10 +32,12 @@ export function TaskCard({ task }: TaskCardProps) {
     <div
       ref={setNodeRef}
       data-testid={`task-card-${task._id}`}
-      className="bg-secondary rounded-md p-3 border-l-4 hover:bg-secondary/80 transition-colors cursor-grab active:cursor-grabbing"
+      data-shortcut-task-card="true"
+      className="bg-secondary rounded-md p-3 border-l-4 hover:bg-secondary/80 transition-colors cursor-grab active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
       style={style}
-      {...attributes}
+      {...draggableAttributes}
       {...listeners}
+      tabIndex={-1}
     >
       <div className="flex items-start gap-2">
         <div

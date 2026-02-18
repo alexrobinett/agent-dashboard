@@ -1,7 +1,9 @@
 import { X, Search } from 'lucide-react'
+import type React from 'react'
 import { Button } from './ui/button'
 import { cn } from '../lib/utils'
 import type { FilterState } from '../hooks/useFilters'
+import { ShortcutHint } from './ShortcutHint'
 
 export interface FilterBarProps {
   filters: FilterState
@@ -10,6 +12,7 @@ export interface FilterBarProps {
   hasActiveFilters: boolean
   projects?: string[]
   agents?: string[]
+  searchInputRef?: React.Ref<HTMLInputElement>
 }
 
 const PRIORITY_OPTIONS = ['low', 'normal', 'high', 'urgent'] as const
@@ -21,15 +24,17 @@ export function FilterBar({
   hasActiveFilters,
   projects = [],
   agents = [],
+  searchInputRef,
 }: FilterBarProps) {
   return (
     <div
       data-testid="filter-bar"
       className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-6"
     >
-      <div className="relative flex-1 min-w-[200px]">
+      <div className="group relative flex-1 min-w-[200px]">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <input
+          ref={searchInputRef}
           type="text"
           data-testid="filter-search"
           placeholder="Search tasks..."
@@ -41,6 +46,7 @@ export function FilterBar({
             'placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
           )}
         />
+        <ShortcutHint keys="/" className="absolute right-2 top-1/2 -translate-y-1/2" />
       </div>
 
       <select
