@@ -9,15 +9,11 @@ import { v } from 'convex/values'
 export const getUserPreferences = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
-    // In production, this will use:
-    // return await ctx.db
-    //   .query('userPreferences')
-    //   .withIndex('by_user', (q) => q.eq('userId', args.userId))
-    //   .first()
-    
-    // For stub/CI purposes, simplified implementation
-    const prefs = await ctx.db.query('userPreferences').order('desc').take(100)
-    return prefs.find((p: any) => p.userId === (args as any).userId) || null
+    const input = args as any
+    return await ctx.db
+      .query('userPreferences')
+      .withIndex('by_user', (q) => q.eq('userId', input.userId))
+      .first()
   },
 })
 
@@ -39,23 +35,30 @@ export const setUserPreferences = mutation({
     notificationEnabled: v.boolean(),
   },
   handler: async (ctx, args) => {
-    // In production, this will find existing by index:
-    // const existing = await ctx.db
-    //   .query('userPreferences')
-    //   .withIndex('by_user', (q) => q.eq('userId', args.userId))
-    //   .first()
-
+    const input = args as any
     const now = Date.now()
-    const a = args as any
+    const existing = await ctx.db
+      .query('userPreferences')
+      .withIndex('by_user', (q) => q.eq('userId', input.userId))
+      .first()
 
-    // For stub/CI purposes, simplified implementation
-    // In production, this would properly query and update
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        defaultView: input.defaultView,
+        filterProject: input.filterProject,
+        filterAgent: input.filterAgent,
+        notificationEnabled: input.notificationEnabled,
+        updatedAt: now,
+      })
+      return existing._id
+    }
+
     return await ctx.db.insert('userPreferences', {
-      userId: a.userId,
-      defaultView: a.defaultView,
-      filterProject: a.filterProject,
-      filterAgent: a.filterAgent,
-      notificationEnabled: a.notificationEnabled,
+      userId: input.userId,
+      defaultView: input.defaultView,
+      filterProject: input.filterProject,
+      filterAgent: input.filterAgent,
+      notificationEnabled: input.notificationEnabled,
       createdAt: now,
       updatedAt: now,
     })

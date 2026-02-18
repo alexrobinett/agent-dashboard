@@ -8,16 +8,12 @@ import { v } from 'convex/values'
 export const getTaskActivity = query({
   args: { taskId: v.id('tasks') },
   handler: async (ctx, args) => {
-    // In production, this will use:
-    // return await ctx.db
-    //   .query('activityLog')
-    //   .withIndex('by_task', (q) => q.eq('taskId', args.taskId))
-    //   .order('asc')
-    //   .collect()
-
-    // For stub/CI purposes, simplified implementation
-    const logs = await ctx.db.query('activityLog').order('desc').take(200)
-    return logs.filter((log: any) => log.taskId === (args as any).taskId)
+    const input = args as any
+    return await ctx.db
+      .query('activityLog')
+      .withIndex('by_task', (q) => q.eq('taskId', input.taskId))
+      .order('asc')
+      .collect()
   },
 })
 
@@ -28,17 +24,13 @@ export const getTaskActivity = query({
 export const getRecentActivity = query({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
-    const limit = (args as any)?.limit || 50
-
-    // In production, this will use:
-    // return await ctx.db
-    //   .query('activityLog')
-    //   .withIndex('by_timestamp')
-    //   .order('desc')
-    //   .take(limit)
-
-    // For stub/CI purposes, simplified implementation
-    return await ctx.db.query('activityLog').order('desc').take(limit)
+    const input = args as any
+    const limit = input.limit ?? 50
+    return await ctx.db
+      .query('activityLog')
+      .withIndex('by_timestamp')
+      .order('desc')
+      .take(limit)
   },
 })
 

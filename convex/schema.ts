@@ -83,6 +83,7 @@ export default defineSchema({
     .index('by_status', ['status'])
     .index('by_agent', ['assignedAgent'])
     .index('by_created_at', ['createdAt'])
+    .index('by_priority', ['priority'])
     .index('by_status_and_agent', ['status', 'assignedAgent'])
     .index('by_parent', ['parentTask'])
     .index('by_project', ['project']),
@@ -105,13 +106,18 @@ export default defineSchema({
   // Activity log for audit trail
   activityLog: defineTable({
     taskId: v.id('tasks'),
-    actor: v.string(),
-    actorType: v.union(
+    type: v.optional(v.union(
+      v.literal('activity'),
+      v.literal('push_queued')
+    )),
+    agentName: v.optional(v.string()),
+    actor: v.optional(v.string()),
+    actorType: v.optional(v.union(
       v.literal('agent'),
       v.literal('user'),
       v.literal('system')
-    ),
-    action: v.union(
+    )),
+    action: v.optional(v.union(
       v.literal('created'),
       v.literal('claimed'),
       v.literal('started'),
@@ -124,7 +130,7 @@ export default defineSchema({
       v.literal('assigned'),
       v.literal('commented'),
       v.literal('priority_changed')
-    ),
+    )),
     metadata: v.optional(
       v.object({
         fromStatus: v.optional(v.string()),

@@ -65,11 +65,13 @@ function mockCtx(tasks: Task[]) {
   const patches: Array<{ id: TaskId; fields: Record<string, unknown> }> = []
   const inserted: Array<{ table: string; doc: Record<string, unknown> }> = []
   const deleted: TaskId[] = []
+  const runMutations: Array<{ mutation: unknown; args: Record<string, unknown> }> = []
 
   const ctx = {
     _patches: patches,
     _inserted: inserted,
     _deleted: deleted,
+    _runMutations: runMutations,
     db: {
       query: (_table: string) => {
         const makeChain = (filtered: Task[]) => ({
@@ -109,6 +111,9 @@ function mockCtx(tasks: Task[]) {
         if (task) Object.assign(task, _fields)
       },
       delete: async (_id: TaskId) => { deleted.push(_id) },
+    },
+    runMutation: async (mutation: unknown, args: Record<string, unknown>) => {
+      runMutations.push({ mutation, args })
     },
   }
   return ctx
