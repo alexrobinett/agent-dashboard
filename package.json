@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev --port 3000",
-    "prebuild": "convex codegen",
+    "prebuild": "bash -c 'if [ -n \"$CONVEX_DEPLOYMENT\" ]; then convex codegen; else echo \"Skipping convex codegen (no CONVEX_DEPLOYMENT)\"; fi'",
     "build": "vite build",
     "preview": "vite preview",
     "pretest": "bash scripts/generate-stubs.sh",
