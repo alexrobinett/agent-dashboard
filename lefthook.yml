@@ -1,9 +1,4 @@
 pre-push:
-  parallel: true
   commands:
-    typecheck:
-      run: pnpm typecheck
-    test:
-      run: pnpm test --passWithNoTests
-    lint:
-      run: pnpm lint
+    check:
+      run: pnpm check

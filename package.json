@@ -17,13 +17,17 @@
     "test:e2e:debug": "playwright test --debug",
     "test:e2e:report": "playwright show-report",
     "hooks:install": "bash scripts/install-hooks.sh",
-    "lint": "eslint src/ convex/ --ext .ts,.tsx",
+    "lint": "pnpm lint:fast",
     "lint:fix": "eslint src/ convex/ --ext .ts,.tsx --fix",
     "typecheck": "tsc --noEmit",
     "convex:dev": "convex dev",
     "convex:deploy": "convex deploy",
     "test:visual": "playwright test e2e/tests/visual.spec.ts",
-    "test:visual:update": "playwright test e2e/tests/visual.spec.ts --update-snapshots"
+    "test:visual:update": "playwright test e2e/tests/visual.spec.ts --update-snapshots",
+    "lint:fast": "oxlint src convex",
+    "lint:full": "eslint src/ convex/ --ext .ts,.tsx",
+    "check:fast": "concurrently -n typecheck,lint \"pnpm typecheck\" \"pnpm lint\"",
+    "check": "pnpm check:fast && pnpm test"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -69,10 +73,13 @@
     "@typescript-eslint/parser": "^8.55.0",
     "@vitejs/plugin-react": "^5.0.4",
     "@vitest/coverage-v8": "^4.0.18",
+    "concurrently": "^9.2.1",
     "eslint": "^10.0.0",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
     "jsdom": "^27.0.0",
+    "lefthook": "^2.1.1",
+    "oxlint": "^1.49.0",
     "typescript": "^5.7.2",
     "vite": "^7.1.7",
     "vitest": "^4.0.18"
@@ -81,7 +88,8 @@
     "//": "ajv pnpm.overrides omitted: pinning ajv>=8.18.0 (CVE-2025-69873 / GHSA-2g4f-4pwh-qvx6) breaks ESLint 10 — accepted as dev-only risk; see SECURITY.md",
     "onlyBuiltDependencies": [
       "better-sqlite3",
-      "esbuild"
+      "esbuild",
+      "lefthook"
     ]
   },
   "version": "0.8.0"

@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-# Delegates to the repo-managed pre-push check script.
-# Install with: bash scripts/install-hooks.sh
-set -euo pipefail
-exec "$(git rev-parse --show-toplevel)/scripts/pre-push-check.sh"
+#!/usr/bin/env sh
+# Run repo hooks via lefthook (keeps hooks deterministic and repo-local).
+set -e
+
+exec pnpm lefthook run pre-push "$@"
