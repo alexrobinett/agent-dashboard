@@ -84,10 +84,12 @@ export const api = {
     listFiltered: {} as any,
     getById: {} as any,
     create: {} as any,
+    createTask: {} as any,
     update: {} as any,
     updateTask: {} as any,
     claimTask: {} as any,
     completeTask: {} as any,
+    deleteTask: {} as any,
   },
   activityLog: {
     getRecentActivity: {} as any,

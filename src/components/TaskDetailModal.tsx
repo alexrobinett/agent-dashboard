@@ -53,10 +53,12 @@ export function TaskDetailModal({
   const [descriptionDraft, setDescriptionDraft] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
   const [optimisticTask, setOptimisticTask] = useState<TaskDetail | null>(null)
+  const [isDeleteConfirming, setIsDeleteConfirming] = useState(false)
 
   const claimTask = useMutation(api.tasks.claimTask)
   const completeTask = useMutation(api.tasks.completeTask)
   const updateTask = useMutation(api.tasks.updateTask)
+  const deleteTask = useMutation(api.tasks.deleteTask)
 
   useEffect(() => {
     if (!task) return
@@ -65,6 +67,7 @@ export function TaskDetailModal({
     setDescriptionDraft(task.description ?? '')
     setIsEditing(false)
     setFormError(null)
+    setIsDeleteConfirming(false)
   }, [task?._id, task])
 
   const displayedTask = optimisticTask ?? task
@@ -153,6 +156,34 @@ export function TaskDetailModal({
       toast.error('Failed to save task details', { description: message })
     } finally {
       setLoadingAction(null)
+    }
+  }
+
+  const confirmDelete = async () => {
+    setLoadingAction('delete')
+    try {
+      await deleteTask({ taskId: displayedTask._id as any })
+      toast.success('Task deleted', {
+        description: (
+          <span className="inline-flex items-center gap-2">
+            Undo is not available yet.
+            <button
+              type="button"
+              className="underline"
+              onClick={() => toast.info('Undo is coming soon')}
+            >
+              Undo
+            </button>
+          </span>
+        ),
+      })
+      onOpenChange(false)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      toast.error('Failed to delete task', { description: message })
+    } finally {
+      setLoadingAction(null)
+      setIsDeleteConfirming(false)
     }
   }
 
@@ -328,6 +359,40 @@ export function TaskDetailModal({
               {loadingAction === 'block' && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
               Block
             </Button>
+          )}
+          {!isDeleteConfirming && (
+            <Button
+              data-testid="action-delete"
+              variant="destructive"
+              size="sm"
+              disabled={loadingAction !== null}
+              onClick={() => setIsDeleteConfirming(true)}
+            >
+              Delete
+            </Button>
+          )}
+          {isDeleteConfirming && (
+            <>
+              <Button
+                data-testid="action-delete-cancel"
+                variant="outline"
+                size="sm"
+                disabled={loadingAction !== null}
+                onClick={() => setIsDeleteConfirming(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                data-testid="action-delete-confirm"
+                variant="destructive"
+                size="sm"
+                disabled={loadingAction !== null}
+                onClick={() => void confirmDelete()}
+              >
+                {loadingAction === 'delete' && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+                Confirm
+              </Button>
+            </>
           )}
         </div>
 
