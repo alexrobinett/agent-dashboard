@@ -198,4 +198,191 @@ describe('TaskDetailModal edit flow', () => {
       description: 'Original description',
     })
   })
+
+  it('renders no action buttons for done task lower-branch path', () => {
+    const doneTask = {
+      ...baseTask,
+      status: 'done',
+      taskKey: undefined,
+      assignedAgent: undefined,
+      project: undefined,
+    }
+
+    render(
+      <TaskDetailModal
+        task={doneTask}
+        activityEntries={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByTestId('action-claim')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('action-complete')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('action-block')).not.toBeInTheDocument()
+  })
+
+  it('shows all task action buttons for planning task', () => {
+    render(
+      <TaskDetailModal
+        task={baseTask}
+        activityEntries={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByTestId('action-claim')).toBeInTheDocument()
+    expect(screen.getByTestId('action-complete')).toBeInTheDocument()
+    expect(screen.getByTestId('action-block')).toBeInTheDocument()
+  })
+
+  it('covers TaskDetailModal lower branches: assignedAgent badge and project span', () => {
+    const taskWithAgentAndProject = {
+      ...baseTask,
+      assignedAgent: 'forge',
+      project: 'agent-dashboard',
+    }
+
+    render(
+      <TaskDetailModal
+        task={taskWithAgentAndProject}
+        activityEntries={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    // assignedAgent badge should render
+    expect(screen.getByText('forge')).toBeInTheDocument()
+    // project span should render
+    expect(screen.getByText('agent-dashboard')).toBeInTheDocument()
+  })
+
+  // Additional tests to cover action button handlers (lines 265-325)
+  it('covers claim action button handler (lines 265-325)', async () => {
+    const user = userEvent.setup()
+    render(
+      <TaskDetailModal
+        task={baseTask}
+        activityEntries={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    const claimButton = screen.getByTestId('action-claim')
+    expect(claimButton).toBeInTheDocument()
+    
+    await user.click(claimButton)
+
+    await waitFor(() => {
+      expect(mockClaimTask).toHaveBeenCalledWith({
+        taskId: 'j57-task-1',
+        agent: 'user',
+      })
+    })
+    expect(mockToastSuccess).toHaveBeenCalledWith('Task claimed')
+  })
+
+  it('covers complete action button handler (lines 265-325)', async () => {
+    const user = userEvent.setup()
+    render(
+      <TaskDetailModal
+        task={baseTask}
+        activityEntries={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    const completeButton = screen.getByTestId('action-complete')
+    expect(completeButton).toBeInTheDocument()
+    
+    await user.click(completeButton)
+
+    await waitFor(() => {
+      expect(mockCompleteTask).toHaveBeenCalledWith({
+        taskId: 'j57-task-1',
+        result: 'Completed',
+      })
+    })
+    expect(mockToastSuccess).toHaveBeenCalledWith('Task completed')
+  })
+
+  it('covers block action button handler (lines 265-325)', async () => {
+    const user = userEvent.setup()
+    render(
+      <TaskDetailModal
+        task={baseTask}
+        activityEntries={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    const blockButton = screen.getByTestId('action-block')
+    expect(blockButton).toBeInTheDocument()
+    
+    await user.click(blockButton)
+
+    await waitFor(() => {
+      expect(mockUpdateTask).toHaveBeenCalledWith({
+        taskId: 'j57-task-1',
+        status: 'blocked',
+      })
+    })
+    expect(mockToastSuccess).toHaveBeenCalledWith('Task blocked')
+  })
+
+  it('covers action button loading states (lines 265-325)', async () => {
+    // Make the mutation hang to test loading state
+    mockClaimTask.mockImplementation(() => new Promise(() => {}))
+    
+    const user = userEvent.setup()
+    render(
+      <TaskDetailModal
+        task={baseTask}
+        activityEntries={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    const claimButton = screen.getByTestId('action-claim')
+    await user.click(claimButton)
+
+    // After clicking, all buttons should be disabled
+    await waitFor(() => {
+      expect(claimButton).toBeDisabled()
+    })
+    expect(screen.getByTestId('action-complete')).toBeDisabled()
+    expect(screen.getByTestId('action-block')).toBeDisabled()
+    
+    // Loading spinner should be visible
+    expect(claimButton.querySelector('.animate-spin')).toBeInTheDocument()
+  })
+
+  it('covers action button error handling (lines 265-325)', async () => {
+    mockClaimTask.mockRejectedValueOnce(new Error('Claim failed'))
+    
+    const user = userEvent.setup()
+    render(
+      <TaskDetailModal
+        task={baseTask}
+        activityEntries={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    const claimButton = screen.getByTestId('action-claim')
+    await user.click(claimButton)
+
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith('Failed to claim', {
+        description: 'Claim failed',
+      })
+    })
+  })
 })
