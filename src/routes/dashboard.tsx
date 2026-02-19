@@ -215,12 +215,7 @@ export function DashboardBoard({
   const [newTaskError, setNewTaskError] = useState<string | null>(null)
   const [isCreatingTask, setIsCreatingTask] = useState(false)
   const focusedTaskIndexRef = useRef<number>(-1)
-  let createTask: ReturnType<typeof useMutation> | null
-  try {
-    createTask = useMutation(api.tasks.createTask)
-  } catch {
-    createTask = null
-  }
+  const createTask = useMutation(api.tasks.createTask)
 
   const setActiveView = useCallback(
     (view: DashboardView) => {
@@ -349,11 +344,9 @@ export function DashboardBoard({
     setIsCreatingTask(true)
     setNewTaskError(null)
     try {
-      if (!createTask) {
-        throw new Error('Task creation is unavailable in this context')
-      }
       await createTask({
         title,
+        description: newTaskDescription.trim() || undefined,
         priority: 'normal',
         project: '',
         createdBy: 'user',
@@ -504,6 +497,7 @@ export function DashboardBoard({
             <label className="block">
               <span className="mb-1 block text-sm font-medium">Description</span>
               <textarea
+                data-testid="new-task-description-input"
                 rows={5}
                 placeholder="Task details"
                 value={newTaskDescription}
