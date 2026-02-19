@@ -6,6 +6,7 @@
  * access occurs during the test run.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import type { BetterAuthAdvancedOptions } from 'better-auth'
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks — declared before any imports that use them.
@@ -33,8 +34,7 @@ vi.mock('better-sqlite3', () => ({
 // ---------------------------------------------------------------------------
 async function loadAuthModule() {
   vi.resetModules()
-  const mod = await import('../../lib/auth')
-  return mod
+  await import('../../lib/auth')
 }
 
 // ---------------------------------------------------------------------------
@@ -56,17 +56,17 @@ describe('Better Auth config — useSecureCookies', () => {
     await loadAuthModule()
 
     expect(capturedConfig.current).not.toBeNull()
-    const advanced = capturedConfig.current!.advanced as Record<string, unknown>
+    const advanced = capturedConfig.current!.advanced as BetterAuthAdvancedOptions
     expect(advanced?.useSecureCookies).toBe(true)
   })
 
-  it('sets useSecureCookies to false in test environment', async () => {
-    vi.stubEnv('NODE_ENV', 'test')
+  it('sets useSecureCookies to false when NODE_ENV is not set', async () => {
+    vi.stubEnv('NODE_ENV', undefined as unknown as string)
 
     await loadAuthModule()
 
     expect(capturedConfig.current).not.toBeNull()
-    const advanced = capturedConfig.current!.advanced as Record<string, unknown>
+    const advanced = capturedConfig.current!.advanced as BetterAuthAdvancedOptions
     expect(advanced?.useSecureCookies).toBe(false)
   })
 
@@ -76,7 +76,7 @@ describe('Better Auth config — useSecureCookies', () => {
     await loadAuthModule()
 
     expect(capturedConfig.current).not.toBeNull()
-    const advanced = capturedConfig.current!.advanced as Record<string, unknown>
+    const advanced = capturedConfig.current!.advanced as BetterAuthAdvancedOptions
     expect(advanced?.useSecureCookies).toBe(false)
   })
 })
