@@ -120,6 +120,41 @@ test.describe('Dashboard Smoke Test', () => {
 
     expect(hasCriticalFailures).toBe(false)
   })
+
+  test('should provide per-lane scrolling with sticky headers', async ({ page }) => {
+    await dashboardPage.goto()
+    await dashboardPage.waitForLoad()
+
+    const laneScroll = page.locator('[data-testid="column-scroll-planning"]')
+    await expect(laneScroll).toBeVisible()
+
+    await laneScroll.focus()
+
+    const overflowY = await laneScroll.evaluate((el) => getComputedStyle(el).overflowY)
+    expect(['auto', 'scroll']).toContain(overflowY)
+
+    const laneHeader = page.locator('[data-testid="column-header-planning"]')
+    const position = await laneHeader.evaluate((el) => getComputedStyle(el).position)
+    expect(position).toBe('sticky')
+  })
+
+  test('should support board lane search with clear no-results feedback', async ({ page }) => {
+    await dashboardPage.goto()
+    await dashboardPage.waitForLoad()
+
+    const laneSearch = page.getByTestId('lane-search-input')
+    await expect(laneSearch).toBeVisible()
+
+    const uniqueQuery = 'zzzz_no_match_query_12345'
+    await laneSearch.fill(uniqueQuery)
+
+    const noResults = page.getByTestId('lane-search-no-results')
+    await expect(noResults).toBeVisible()
+    await expect(noResults).toContainText('No matching tasks')
+
+    await laneSearch.fill('')
+    await expect(noResults).not.toBeVisible()
+  })
 })
 
 test.describe('Dashboard Viewport Tests', () => {
