@@ -1,8 +1,7 @@
 name: Lighthouse CI
 
 on:
-  pull_request:
-    branches: [main]
+  workflow_dispatch: {}
 
 env:
   VITE_CONVEX_URL: https://curious-dolphin-134.convex.cloud
