@@ -43,33 +43,51 @@ runs:
       if: inputs.mode == 'check'
       shell: bash
       run: |
-        # Download latest sentinel review artifact
-        ARTIFACTS=$(gh api repos/${{ github.repository }}/actions/artifacts \
-          --jq '[.artifacts[] | select(.name | startswith("sentinel-review-"))] | sort_by(.created_at) | reverse | .[0]')
+        # Find the latest sentinel review artifact for this PR
+        ARTIFACT_NAME="sentinel-review-${{ inputs.sha }}"
 
-        if [[ -z "$ARTIFACTS" || "$ARTIFACTS" == "null" ]]; then
-          echo "❌ No Sentinel review found for this PR"
+        # Download the artifact
+        gh api repos/${{ github.repository }}/actions/artifacts \
+          --jq "[.artifacts[] | select(.name == \"$ARTIFACT_NAME\")] | .[0].id" > /tmp/artifact_id.txt
+
+        ARTIFACT_ID=$(cat /tmp/artifact_id.txt)
+
+        if [[ -z "$ARTIFACT_ID" || "$ARTIFACT_ID" == "null" ]]; then
+          echo "❌ No Sentinel review found for SHA ${{ inputs.sha }}"
+          echo "Expected artifact: $ARTIFACT_NAME"
           exit 1
         fi
 
-        REVIEW_SHA=$(echo "$ARTIFACTS" | jq -r '.name' | sed 's/sentinel-review-//')
+        # Download and extract the artifact content
+        mkdir -p /tmp/sentinel-artifact
+        gh api repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip > /tmp/sentinel-artifact.zip
+        unzip -o /tmp/sentinel-artifact.zip -d /tmp/sentinel-artifact
+
+        # Read the manifest
+        MANIFEST=/tmp/sentinel-artifact/review-manifest.json
+        if [[ ! -f "$MANIFEST" ]]; then
+          echo "❌ review-manifest.json not found in artifact"
+          exit 1
+        fi
+
+        REVIEW_SHA=$(jq -r '.sha' "$MANIFEST")
+        VERDICT=$(jq -r '.verdict // "unknown"' "$MANIFEST")
         CURRENT_SHA="${{ inputs.sha }}"
 
         echo "Review SHA:  $REVIEW_SHA"
         echo "Current SHA: $CURRENT_SHA"
+        echo "Verdict:     $VERDICT"
 
         if [[ "$REVIEW_SHA" != "$CURRENT_SHA" ]]; then
           echo "❌ SHA mismatch — review is stale. Sentinel must re-review current head."
           exit 1
         fi
 
-        # Check verdict
-        VERDICT=$(echo "$ARTIFACTS" | jq -r '.verdict // "unknown"')
         if [[ "$VERDICT" == "fail" ]]; then
           echo "❌ Sentinel review verdict: FAIL"
           exit 1
         fi
 
-        echo "✅ SHA discipline check passed — review matches current head"
+        echo "✅ SHA discipline check passed"
       env:
         GH_TOKEN: ${{ github.token }}
