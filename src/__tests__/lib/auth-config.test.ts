@@ -37,8 +37,16 @@ async function loadAuthModule() {
   await import('../../lib/auth')
 }
 
+/** Pull the typed `advanced` block from the captured config. */
+function getAdvanced() {
+  expect(capturedConfig.current).not.toBeNull()
+  return capturedConfig.current!.advanced as BetterAuthAdvancedOptions & {
+    defaultCookieAttributes?: { httpOnly?: boolean; sameSite?: string }
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Tests
+// useSecureCookies
 // ---------------------------------------------------------------------------
 describe('Better Auth config — useSecureCookies', () => {
   afterEach(() => {
@@ -55,9 +63,7 @@ describe('Better Auth config — useSecureCookies', () => {
 
     await loadAuthModule()
 
-    expect(capturedConfig.current).not.toBeNull()
-    const advanced = capturedConfig.current!.advanced as BetterAuthAdvancedOptions
-    expect(advanced?.useSecureCookies).toBe(true)
+    expect(getAdvanced()?.useSecureCookies).toBe(true)
   })
 
   it('sets useSecureCookies to false when NODE_ENV is not set', async () => {
@@ -65,9 +71,7 @@ describe('Better Auth config — useSecureCookies', () => {
 
     await loadAuthModule()
 
-    expect(capturedConfig.current).not.toBeNull()
-    const advanced = capturedConfig.current!.advanced as BetterAuthAdvancedOptions
-    expect(advanced?.useSecureCookies).toBe(false)
+    expect(getAdvanced()?.useSecureCookies).toBe(false)
   })
 
   it('sets useSecureCookies to false in development', async () => {
@@ -75,12 +79,63 @@ describe('Better Auth config — useSecureCookies', () => {
 
     await loadAuthModule()
 
-    expect(capturedConfig.current).not.toBeNull()
-    const advanced = capturedConfig.current!.advanced as BetterAuthAdvancedOptions
-    expect(advanced?.useSecureCookies).toBe(false)
+    expect(getAdvanced()?.useSecureCookies).toBe(false)
   })
 })
 
+// ---------------------------------------------------------------------------
+// Cookie hardening attributes (httpOnly / sameSite)
+// ---------------------------------------------------------------------------
+describe('Better Auth config — defaultCookieAttributes', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    capturedConfig.current = null
+  })
+
+  it('sets httpOnly to true in development', async () => {
+    vi.stubEnv('NODE_ENV', 'development')
+
+    await loadAuthModule()
+
+    expect(getAdvanced()?.defaultCookieAttributes?.httpOnly).toBe(true)
+  })
+
+  it('sets httpOnly to true in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('BETTER_AUTH_SECRET', 'a'.repeat(32))
+    vi.stubEnv('BETTER_AUTH_DB_URL', '/tmp/test.db')
+    vi.stubEnv('GITHUB_CLIENT_ID', 'test-client-id')
+    vi.stubEnv('GITHUB_CLIENT_SECRET', 'test-client-secret')
+
+    await loadAuthModule()
+
+    expect(getAdvanced()?.defaultCookieAttributes?.httpOnly).toBe(true)
+  })
+
+  it('sets sameSite to "lax" in development', async () => {
+    vi.stubEnv('NODE_ENV', 'development')
+
+    await loadAuthModule()
+
+    expect(getAdvanced()?.defaultCookieAttributes?.sameSite).toBe('lax')
+  })
+
+  it('sets sameSite to "lax" in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('BETTER_AUTH_SECRET', 'a'.repeat(32))
+    vi.stubEnv('BETTER_AUTH_DB_URL', '/tmp/test.db')
+    vi.stubEnv('GITHUB_CLIENT_ID', 'test-client-id')
+    vi.stubEnv('GITHUB_CLIENT_SECRET', 'test-client-secret')
+
+    await loadAuthModule()
+
+    expect(getAdvanced()?.defaultCookieAttributes?.sameSite).toBe('lax')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Other required options
+// ---------------------------------------------------------------------------
 describe('Better Auth config — other required options', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
