@@ -1,7 +1,7 @@
 {
   "ci": {
     "collect": {
-      "staticDistDir": ".output/public",
+      "url": ["http://localhost:3000/"],
       "numberOfRuns": 1,
       "settings": {
         "chromeFlags": "--no-sandbox --disable-dev-shm-usage",

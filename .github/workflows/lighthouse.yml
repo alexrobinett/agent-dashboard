@@ -41,6 +41,14 @@ jobs:
         env:
           VITE_CONVEX_URL: ${{ env.VITE_CONVEX_URL }}
 
+      - name: Start server
+        run: |
+          PORT=3000 node .output/server/index.mjs &
+          echo "SERVER_PID=$!" >> $GITHUB_ENV
+
+      - name: Wait for server to be ready
+        run: npx wait-on http://localhost:3000 --timeout 60000 --interval 1000
+
       - name: Install Lighthouse CI
         run: npm install -g @lhci/cli@0.14.x
 
@@ -48,3 +56,7 @@ jobs:
         run: lhci autorun
         env:
           LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+
+      - name: Stop server
+        if: always()
+        run: kill $SERVER_PID || true
