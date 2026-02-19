@@ -413,7 +413,7 @@ export function DashboardBoard({
                 {totalTasks === 0 && !hasActiveFilters && (
                   <EmptyState variant="no-data" />
                 )}
-                <KanbanBoard tasks={filteredTasks} />
+                <KanbanBoard tasks={filteredTasks} activityEntries={activityEntries} />
               </div>
             </ErrorBoundary>
           )

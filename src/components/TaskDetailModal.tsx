@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation } from 'convex/react'
 import { api } from '../../convex/_generated/api'
 import { toast } from 'sonner'
-import { Copy, Loader2 } from 'lucide-react'
+import { Copy, Loader2, PencilLine } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -30,6 +30,7 @@ export interface TaskDetailModalProps {
   activityEntries: ActivityEntry[]
   open: boolean
   onOpenChange: (open: boolean) => void
+  onTaskPatched?: (taskId: string, patch: Partial<TaskDetail>) => void
 }
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -44,13 +45,32 @@ export function TaskDetailModal({
   activityEntries,
   open,
   onOpenChange,
+  onTaskPatched,
 }: TaskDetailModalProps) {
   const [loadingAction, setLoadingAction] = useState<string | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
+  const [descriptionDraft, setDescriptionDraft] = useState('')
+  const [formError, setFormError] = useState<string | null>(null)
+  const [optimisticTask, setOptimisticTask] = useState<TaskDetail | null>(null)
+
   const claimTask = useMutation(api.tasks.claimTask)
   const completeTask = useMutation(api.tasks.completeTask)
-  const updateTask = useMutation(api.tasks.update)
+  const updateTask = useMutation(api.tasks.updateTask)
 
-  if (!task) return null
+  useEffect(() => {
+    if (!task) return
+    setOptimisticTask(task)
+    setTitleDraft(task.title ?? '')
+    setDescriptionDraft(task.description ?? '')
+    setIsEditing(false)
+    setFormError(null)
+  }, [task?._id, task])
+
+  const displayedTask = optimisticTask ?? task
+  if (!displayedTask) return null
+
+  const trimmedTitle = titleDraft.trim()
 
   const handleAction = async (
     actionName: string,
@@ -69,9 +89,9 @@ export function TaskDetailModal({
     }
   }
 
-  const canClaim = !task.assignedAgent && task.status !== 'done'
-  const canComplete = task.status !== 'done' && task.status !== 'cancelled'
-  const canBlock = task.status !== 'blocked' && task.status !== 'done'
+  const canClaim = !displayedTask.assignedAgent && displayedTask.status !== 'done'
+  const canComplete = displayedTask.status !== 'done' && displayedTask.status !== 'cancelled'
+  const canBlock = displayedTask.status !== 'blocked' && displayedTask.status !== 'done'
 
   const copyToClipboard = async (label: string, value: string) => {
     try {
@@ -82,28 +102,167 @@ export function TaskDetailModal({
     }
   }
 
+  const startEditing = () => {
+    setTitleDraft(displayedTask.title ?? '')
+    setDescriptionDraft(displayedTask.description ?? '')
+    setIsEditing(true)
+    setFormError(null)
+  }
+
+  const cancelEditing = () => {
+    setTitleDraft(displayedTask.title ?? '')
+    setDescriptionDraft(displayedTask.description ?? '')
+    setIsEditing(false)
+    setFormError(null)
+  }
+
+  const saveEdits = async () => {
+    if (!trimmedTitle) {
+      setFormError('Title is required.')
+      return
+    }
+
+    const previousTask = displayedTask
+    const patch: Partial<TaskDetail> = {
+      title: trimmedTitle,
+      description: descriptionDraft.trim() || undefined,
+    }
+
+    setFormError(null)
+    setLoadingAction('save')
+    setOptimisticTask((prev) => (prev ? { ...prev, ...patch } : prev))
+    onTaskPatched?.(displayedTask._id, patch)
+    setIsEditing(false)
+
+    try {
+      await updateTask({
+        taskId: displayedTask._id as any,
+        title: patch.title,
+        description: patch.description,
+      })
+      toast.success('Task details saved')
+    } catch (error) {
+      setOptimisticTask(previousTask)
+      onTaskPatched?.(displayedTask._id, {
+        title: previousTask.title,
+        description: previousTask.description,
+      })
+      setIsEditing(true)
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      setFormError(message)
+      toast.error('Failed to save task details', { description: message })
+    } finally {
+      setLoadingAction(null)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         data-testid="task-detail-modal"
         className="max-w-2xl max-h-[85vh] overflow-y-auto"
+        onKeyDown={(event) => {
+          if (!isEditing || loadingAction === 'save') return
+          if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+            event.preventDefault()
+            void saveEdits()
+          }
+        }}
       >
         <DialogHeader>
-          <DialogTitle data-testid="task-detail-title">{task.title}</DialogTitle>
-          {task.description && (
-            <DialogDescription data-testid="task-detail-description">
-              {task.description}
-            </DialogDescription>
-          )}
+          <div className="flex items-center gap-2">
+            <DialogTitle data-testid="task-detail-title">{displayedTask.title}</DialogTitle>
+            {!isEditing && (
+              <Button
+                type="button"
+                data-testid="edit-task-button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2"
+                onClick={startEditing}
+              >
+                <PencilLine className="h-3.5 w-3.5 mr-1" />
+                Edit
+              </Button>
+            )}
+          </div>
+          <DialogDescription
+            data-testid="task-detail-description"
+            className={displayedTask.description ? '' : 'sr-only'}
+          >
+            {displayedTask.description || 'Task details and activity'}
+          </DialogDescription>
         </DialogHeader>
 
+        {isEditing && (
+          <form
+            data-testid="task-edit-form"
+            className="space-y-3 rounded-md border border-border p-3"
+            onSubmit={(e) => {
+              e.preventDefault()
+              void saveEdits()
+            }}
+          >
+            <div className="space-y-1.5">
+              <label htmlFor="task-title-input" className="text-sm font-medium">Title</label>
+              <input
+                id="task-title-input"
+                data-testid="edit-title-input"
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                aria-invalid={Boolean(formError && !trimmedTitle)}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="task-description-input" className="text-sm font-medium">Description</label>
+              <textarea
+                id="task-description-input"
+                data-testid="edit-description-input"
+                value={descriptionDraft}
+                onChange={(e) => setDescriptionDraft(e.target.value)}
+                rows={4}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              />
+            </div>
+            {formError && (
+              <p data-testid="task-edit-error" role="alert" className="text-sm text-destructive">
+                {formError}
+              </p>
+            )}
+            <div className="flex items-center gap-2">
+              <Button
+                type="submit"
+                data-testid="save-task-button"
+                size="sm"
+                disabled={loadingAction === 'save'}
+              >
+                {loadingAction === 'save' && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+                Save
+              </Button>
+              <Button
+                type="button"
+                data-testid="cancel-task-button"
+                variant="outline"
+                size="sm"
+                disabled={loadingAction === 'save'}
+                onClick={cancelEditing}
+              >
+                Cancel
+              </Button>
+              <span className="text-xs text-muted-foreground">Press ⌘/Ctrl+S to save</span>
+            </div>
+          </form>
+        )}
+
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge variant="outline" className="font-mono">{task.taskKey ?? task._id}</Badge>
+          <Badge variant="outline" className="font-mono">{displayedTask.taskKey ?? displayedTask._id}</Badge>
           <Button
             data-testid="copy-task-key"
             variant="ghost"
             size="sm"
-            onClick={() => copyToClipboard('Task key', task.taskKey ?? task._id)}
+            onClick={() => copyToClipboard('Task key', displayedTask.taskKey ?? displayedTask._id)}
           >
             <Copy className="h-3.5 w-3.5 mr-1" /> Copy key
           </Button>
@@ -111,23 +270,22 @@ export function TaskDetailModal({
             data-testid="copy-task-id"
             variant="ghost"
             size="sm"
-            onClick={() => copyToClipboard('Task id', task._id)}
+            onClick={() => copyToClipboard('Task id', displayedTask._id)}
           >
             <Copy className="h-3.5 w-3.5 mr-1" /> Copy ID
           </Button>
-          <Badge variant={STATUS_VARIANT[task.status] ?? 'outline'}>
-            {task.status}
+          <Badge variant={STATUS_VARIANT[displayedTask.status] ?? 'outline'}>
+            {displayedTask.status}
           </Badge>
-          <Badge variant="secondary">{task.priority}</Badge>
-          {task.assignedAgent && (
-            <Badge variant="outline">{task.assignedAgent}</Badge>
+          <Badge variant="secondary">{displayedTask.priority}</Badge>
+          {displayedTask.assignedAgent && (
+            <Badge variant="outline">{displayedTask.assignedAgent}</Badge>
           )}
-          {task.project && (
-            <span className="text-xs text-muted-foreground">{task.project}</span>
+          {displayedTask.project && (
+            <span className="text-xs text-muted-foreground">{displayedTask.project}</span>
           )}
         </div>
 
-        {/* Action buttons with loading states */}
         <div data-testid="task-actions" className="flex items-center gap-2 flex-wrap pt-2">
           {canClaim && (
             <Button
@@ -136,7 +294,7 @@ export function TaskDetailModal({
               size="sm"
               disabled={loadingAction !== null}
               onClick={() =>
-                handleAction('claim', () => claimTask({ taskId: task._id as any, agent: 'user' }), 'Task claimed')
+                handleAction('claim', () => claimTask({ taskId: displayedTask._id as any, agent: 'user' }), 'Task claimed')
               }
             >
               {loadingAction === 'claim' && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
@@ -150,7 +308,7 @@ export function TaskDetailModal({
               size="sm"
               disabled={loadingAction !== null}
               onClick={() =>
-                handleAction('complete', () => completeTask({ taskId: task._id as any, result: 'Completed' }), 'Task completed')
+                handleAction('complete', () => completeTask({ taskId: displayedTask._id as any, result: 'Completed' }), 'Task completed')
               }
             >
               {loadingAction === 'complete' && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
@@ -164,7 +322,7 @@ export function TaskDetailModal({
               size="sm"
               disabled={loadingAction !== null}
               onClick={() =>
-                handleAction('block', () => updateTask({ id: task._id as any, status: 'blocked' }), 'Task blocked')
+                handleAction('block', () => updateTask({ taskId: displayedTask._id as any, status: 'blocked' }), 'Task blocked')
               }
             >
               {loadingAction === 'block' && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}

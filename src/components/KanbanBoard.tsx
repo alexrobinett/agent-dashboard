@@ -15,6 +15,8 @@ import { useOptimisticTaskMove } from '../hooks/useOptimisticTaskMove'
 import { useSearch } from '../hooks/useSearch'
 import { KanbanColumn } from './KanbanColumn'
 import { TaskCard } from './TaskCard'
+import { TaskDetailModal, type TaskDetail } from './TaskDetailModal'
+import type { ActivityEntry } from './ActivityTimeline'
 
 const STATUS_ORDER = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked'] as const
 
@@ -26,10 +28,25 @@ type Task = {
   priority?: string
   project?: string
   status?: string
+  taskKey?: string
 }
 
 interface KanbanBoardProps {
   tasks: Record<string, Task[]>
+  activityEntries?: ActivityEntry[]
+}
+
+function toTaskDetail(task: Task): TaskDetail {
+  return {
+    _id: task._id,
+    title: task.title,
+    description: task.description,
+    status: task.status ?? 'planning',
+    priority: task.priority ?? 'normal',
+    assignedAgent: task.assignedAgent,
+    project: task.project,
+    taskKey: task.taskKey,
+  }
 }
 
 function regroupByStatus(tasks: Task[]) {
@@ -50,7 +67,7 @@ function regroupByStatus(tasks: Task[]) {
   return grouped
 }
 
-export function KanbanBoard({ tasks }: KanbanBoardProps) {
+export function KanbanBoard({ tasks, activityEntries = [] }: KanbanBoardProps) {
   const [mounted, setMounted] = useState(false)
   const [laneSearchQuery, setLaneSearchQuery] = useState('')
 
@@ -59,6 +76,7 @@ export function KanbanBoard({ tasks }: KanbanBoardProps) {
   return mounted ? (
     <KanbanBoardInteractive
       tasks={tasks}
+      activityEntries={activityEntries}
       laneSearchQuery={laneSearchQuery}
       setLaneSearchQuery={setLaneSearchQuery}
     />
@@ -69,6 +87,7 @@ export function KanbanBoard({ tasks }: KanbanBoardProps) {
 
 function KanbanBoardInteractive({
   tasks,
+  activityEntries = [],
   laneSearchQuery,
   setLaneSearchQuery,
 }: KanbanBoardProps & {
@@ -76,6 +95,9 @@ function KanbanBoardInteractive({
   setLaneSearchQuery: (value: string) => void
 }) {
   const [activeTask, setActiveTask] = useState<Task | null>(null)
+  const [selectedTask, setSelectedTask] = useState<TaskDetail | null>(null)
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false)
+  const [pendingDetailPatches, setPendingDetailPatches] = useState<Map<string, Partial<Task>>>(new Map())
   const { displayTasks, moveTask } = useOptimisticTaskMove(tasks)
 
   const pointerSensor = useSensor(PointerSensor, {
@@ -87,9 +109,21 @@ function KanbanBoardInteractive({
   })
   const sensors = useSensors(pointerSensor, keyboardSensor, touchSensor)
 
+  const patchedDisplayTasks = useMemo(() => {
+    if (pendingDetailPatches.size === 0) return displayTasks
+    const result: Record<string, Task[]> = {}
+    for (const status of STATUS_ORDER) {
+      result[status] = (displayTasks[status] || []).map((task) => ({
+        ...task,
+        ...(pendingDetailPatches.get(task._id) ?? {}),
+      }))
+    }
+    return result
+  }, [displayTasks, pendingDetailPatches])
+
   const allDisplayTasks = useMemo(
-    () => STATUS_ORDER.flatMap((status) => displayTasks[status] || []),
-    [displayTasks],
+    () => STATUS_ORDER.flatMap((status) => patchedDisplayTasks[status] || []),
+    [patchedDisplayTasks],
   )
 
   const { filteredTasks } = useSearch(allDisplayTasks, laneSearchQuery)
@@ -100,7 +134,7 @@ function KanbanBoardInteractive({
   // Build a lookup from task id to its current status (using display tasks for accuracy)
   const taskStatusMap = new Map<string, string>()
   for (const status of STATUS_ORDER) {
-    for (const task of displayTasks[status] || []) {
+    for (const task of patchedDisplayTasks[status] || []) {
       taskStatusMap.set(task._id, status)
     }
   }
@@ -124,12 +158,30 @@ function KanbanBoardInteractive({
       const newStatus = over.id as string
       const currentStatus = taskStatusMap.get(taskId)
 
-      // Only update if dropped on a different column
       if (currentStatus === newStatus) return
 
       moveTask(taskId, currentStatus || 'planning', newStatus)
     },
     [moveTask, taskStatusMap],
+  )
+
+  const handleOpenTaskDetails = useCallback((task: Task) => {
+    setSelectedTask(toTaskDetail(task))
+    setIsTaskModalOpen(true)
+  }, [])
+
+  const handleTaskPatched = useCallback((taskId: string, patch: Partial<TaskDetail>) => {
+    setPendingDetailPatches((prev) => {
+      const next = new Map(prev)
+      next.set(taskId, { ...(next.get(taskId) ?? {}), ...patch })
+      return next
+    })
+    setSelectedTask((prev) => (prev && prev._id === taskId ? { ...prev, ...patch } : prev))
+  }, [])
+
+  const selectedTaskEntries = useMemo(
+    () => activityEntries.filter((entry) => entry.taskId === selectedTask?._id),
+    [activityEntries, selectedTask?._id],
   )
 
   return (
@@ -169,12 +221,23 @@ function KanbanBoardInteractive({
             status={status}
             tasks={filteredByLane[status] || []}
             emptyMessage={hasSearch ? 'No matching tasks' : 'No tasks'}
+            onOpenTaskDetails={handleOpenTaskDetails}
           />
         ))}
       </div>
       <DragOverlay>
         {activeTask ? <TaskCard task={activeTask} /> : null}
       </DragOverlay>
+
+      {selectedTask && (
+        <TaskDetailModal
+          task={selectedTask}
+          activityEntries={selectedTaskEntries}
+          open={isTaskModalOpen}
+          onOpenChange={setIsTaskModalOpen}
+          onTaskPatched={handleTaskPatched}
+        />
+      )}
     </DndContext>
   )
 }

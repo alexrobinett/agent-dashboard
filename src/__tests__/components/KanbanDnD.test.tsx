@@ -12,6 +12,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import React from 'react'
 
 // Shared mock mutation function - captured by the convex/react mock
@@ -226,6 +227,15 @@ describe('KanbanColumn - Droppable Column', () => {
 })
 
 describe('KanbanBoard - DndContext Wrapper', () => {
+  it('opens task detail modal from task card detail affordance', async () => {
+    const user = userEvent.setup()
+    render(<KanbanBoard tasks={mockTasks} activityEntries={[]} />)
+
+    await user.click(screen.getByTestId('task-details-button-task-1'))
+    expect(screen.getByTestId('task-detail-modal')).toBeDefined()
+    expect(screen.getByTestId('task-detail-title').textContent).toContain('Test Task')
+  })
+
   it('should render DndContext wrapper', () => {
     render(<KanbanBoard tasks={mockTasks} />)
     expect(screen.getByTestId('dnd-context')).toBeDefined()
@@ -269,6 +279,7 @@ describe('KanbanBoard - DndContext Wrapper', () => {
     render(<KanbanBoard tasks={mockTasks} />)
     expect(screen.getByTestId('drag-overlay')).toBeDefined()
   })
+
 })
 
 describe('KanbanBoard - Drag and Drop Behavior', () => {
