@@ -18,4 +18,4 @@ ENV CONVEX_DEPLOYMENT=
 RUN pnpm build
 
 EXPOSE 3000
-CMD ["sh", "-c", "pnpm preview --host 0.0.0.0 --port ${PORT:-3000}"]
+CMD ["node", ".output/server/index.mjs"]
