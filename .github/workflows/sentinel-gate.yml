@@ -1,0 +1,46 @@
+name: Sentinel Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+
+jobs:
+  sha-discipline:
+    name: SHA Discipline Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load risk policy
+        id: risk
+        run: |
+          if [[ ! -f .github/risk-policy.json ]]; then
+            echo "tier=low" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          # Check if any changed files are high-risk
+          CHANGED=$(gh pr view ${{ github.event.pull_request.number }} --json files --jq '[.files[].path] | join("\n")')
+          HIGH_PATTERNS=$(jq -r '.riskTierRules.high[]' .github/risk-policy.json)
+          TIER="low"
+          while IFS= read -r pattern; do
+            if echo "$CHANGED" | grep -qE "$(echo "$pattern" | sed 's/\*\*/[^]*/g; s/\*/[^/]*/g')"; then
+              TIER="high"
+              break
+            fi
+          done <<< "$HIGH_PATTERNS"
+          echo "tier=$TIER" >> $GITHUB_OUTPUT
+          echo "Detected risk tier: $TIER"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Enforce SHA discipline (high-risk only)
+        if: steps.risk.outputs.tier == 'high'
+        uses: ./.github/actions/sentinel-gate
+        with:
+          mode: check
+          sha: ${{ github.event.pull_request.head.sha }}
