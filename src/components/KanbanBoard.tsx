@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -51,15 +51,35 @@ function regroupByStatus(tasks: Task[]) {
 }
 
 export function KanbanBoard({ tasks }: KanbanBoardProps) {
-  if (typeof window === 'undefined') {
-    return <KanbanBoardStatic tasks={tasks} />
-  }
-  return <KanbanBoardInteractive tasks={tasks} />
+  const [mounted, setMounted] = useState(false)
+  const [laneSearchQuery, setLaneSearchQuery] = useState('')
+
+  useEffect(() => setMounted(true), [])
+
+  return mounted ? (
+    <KanbanBoardInteractive
+      tasks={tasks}
+      laneSearchQuery={laneSearchQuery}
+      setLaneSearchQuery={setLaneSearchQuery}
+    />
+  ) : (
+    <KanbanBoardStatic
+      tasks={tasks}
+      laneSearchQuery={laneSearchQuery}
+      setLaneSearchQuery={setLaneSearchQuery}
+    />
+  )
 }
 
-function KanbanBoardInteractive({ tasks }: KanbanBoardProps) {
+function KanbanBoardInteractive({
+  tasks,
+  laneSearchQuery,
+  setLaneSearchQuery,
+}: KanbanBoardProps & {
+  laneSearchQuery: string
+  setLaneSearchQuery: (value: string) => void
+}) {
   const [activeTask, setActiveTask] = useState<Task | null>(null)
-  const [laneSearchQuery, setLaneSearchQuery] = useState('')
   const { displayTasks, moveTask } = useOptimisticTaskMove(tasks)
 
   const pointerSensor = useSensor(PointerSensor, {
@@ -163,7 +183,16 @@ function KanbanBoardInteractive({ tasks }: KanbanBoardProps) {
   )
 }
 
-function KanbanBoardStatic({ tasks }: KanbanBoardProps) {
+function KanbanBoardStatic({
+  tasks,
+  laneSearchQuery,
+  setLaneSearchQuery,
+}: KanbanBoardProps & {
+  laneSearchQuery: string
+  setLaneSearchQuery: (value: string) => void
+}) {
+  const hasSearch = laneSearchQuery.trim().length > 0
+
   return (
     <>
       <div className="mb-4">
@@ -177,11 +206,17 @@ function KanbanBoardStatic({ tasks }: KanbanBoardProps) {
             data-testid="lane-search-input"
             type="search"
             placeholder="Search visible tasks in board..."
-            value=""
-            readOnly
+            value={laneSearchQuery}
+            onChange={(e) => setLaneSearchQuery(e.target.value)}
+            disabled
             className="h-9 w-full rounded-md border border-input bg-background py-2 pl-9 pr-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
           />
         </div>
+        {hasSearch && (
+          <p data-testid="lane-search-no-results" className="mt-2 text-sm text-muted-foreground">
+            No matching tasks for “{laneSearchQuery.trim()}”.
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="kanban-grid">
