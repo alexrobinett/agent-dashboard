@@ -109,6 +109,8 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
+    env:
+      CONVEX_DEPLOYMENT: ${{ secrets.CONVEX_DEPLOYMENT }}
     steps:
       - uses: actions/checkout@v4
       
