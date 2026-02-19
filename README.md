@@ -305,6 +305,15 @@ The application can be deployed to any platform that supports Node.js applicatio
 
 Convex automatically deploys when you push to production.
 
+### Deployment notes (Railway/CI)
+
+- `pnpm build` now runs `convex codegen` first (`prebuild`) so `convex/_generated/*` is always produced in hosting/CI (deterministic builds, no local artifacts required).
+- Required env vars for hosted builds:
+  - `CONVEX_DEPLOY_KEY`
+  - `CONVEX_DEPLOYMENT`
+  - `VITE_CONVEX_URL`
+- SSR remains enabled (TanStack Start + Nitro) and CSP `connect-src` allows both `https:` and `wss:` for Convex HTTP/WebSocket traffic.
+
 ## 📝 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

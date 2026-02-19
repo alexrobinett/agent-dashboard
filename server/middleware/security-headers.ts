@@ -1,4 +1,5 @@
 import { defineEventHandler, setResponseHeaders } from 'nitro/h3'
+import { securityHeaders } from '../securityHeaders'
 
 /**
  * Nitro server middleware that applies HTTP security headers to every response.
@@ -11,12 +12,5 @@ import { defineEventHandler, setResponseHeaders } from 'nitro/h3'
  *   - Permissions-Policy: disables unused browser features
  */
 export default defineEventHandler((event) => {
-  setResponseHeaders(event, {
-    'Content-Security-Policy':
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https:; frame-ancestors 'none'",
-    'X-Frame-Options': 'DENY',
-    'X-Content-Type-Options': 'nosniff',
-    'Referrer-Policy': 'strict-origin-when-cross-origin',
-    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-  })
+  setResponseHeaders(event, securityHeaders)
 })
