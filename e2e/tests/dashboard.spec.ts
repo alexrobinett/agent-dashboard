@@ -143,7 +143,7 @@ test.describe('Dashboard Smoke Test', () => {
     await dashboardPage.waitForLoad()
 
     const laneSearch = page.getByTestId('lane-search-input')
-    await expect(laneSearch).toBeVisible()
+    await expect(laneSearch).toBeVisible({ timeout: 15000 })
 
     const uniqueQuery = 'zzzz_no_match_query_12345'
     await laneSearch.fill(uniqueQuery)

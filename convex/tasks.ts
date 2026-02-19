@@ -1038,10 +1038,10 @@ export const backfillFriendlyTaskKeys = internalMutation({
   args: {
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx: MutationCtx, args: { limit?: number }) => {
     const max = Math.max(1, Math.min(args.limit ?? 100, 1000))
-    const tasks = await queryTasksWithOptionalIndex(ctx as any, 5000, 'by_created_at')
-    let nextTaskNumber = await getMaxTaskNumber(ctx as any)
+    const tasks = await queryTasksWithOptionalIndex(ctx, 5000, 'by_created_at')
+    let nextTaskNumber = await getMaxTaskNumber(ctx)
 
     let updated = 0
     for (const task of [...tasks].reverse()) {
