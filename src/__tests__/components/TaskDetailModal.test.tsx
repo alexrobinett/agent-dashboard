@@ -6,6 +6,7 @@ import { TaskDetailModal } from '../../components/TaskDetailModal'
 const mockUpdateTask = vi.fn()
 const mockClaimTask = vi.fn()
 const mockCompleteTask = vi.fn()
+const mockDeleteTask = vi.fn()
 const mockToastSuccess = vi.fn()
 const mockToastError = vi.fn()
 
@@ -15,6 +16,7 @@ vi.mock('../../../convex/_generated/api', () => ({
       updateTask: 'updateTask',
       claimTask: 'claimTask',
       completeTask: 'completeTask',
+      deleteTask: 'deleteTask',
     },
   },
 }))
@@ -24,6 +26,7 @@ vi.mock('convex/react', () => ({
     if (ref === 'updateTask') return mockUpdateTask
     if (ref === 'claimTask') return mockClaimTask
     if (ref === 'completeTask') return mockCompleteTask
+    if (ref === 'deleteTask') return mockDeleteTask
     return vi.fn()
   },
 }))
@@ -50,6 +53,7 @@ describe('TaskDetailModal edit flow', () => {
     mockUpdateTask.mockResolvedValue('ok')
     mockClaimTask.mockResolvedValue('ok')
     mockCompleteTask.mockResolvedValue('ok')
+    mockDeleteTask.mockResolvedValue('ok')
   })
 
   it('opens and enters edit mode from the edit affordance', async () => {
@@ -384,5 +388,109 @@ describe('TaskDetailModal edit flow', () => {
         description: 'Claim failed',
       })
     })
+  })
+})
+
+describe('TaskDetailModal delete confirm/cancel flow', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUpdateTask.mockResolvedValue('ok')
+    mockClaimTask.mockResolvedValue('ok')
+    mockCompleteTask.mockResolvedValue('ok')
+    mockDeleteTask.mockResolvedValue('ok')
+  })
+
+  it('clicking Delete shows confirm and cancel buttons, hides Delete button', async () => {
+    const user = userEvent.setup()
+    render(
+      <TaskDetailModal
+        task={baseTask}
+        activityEntries={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    // Initially the Delete button is visible, confirm/cancel are not
+    expect(screen.getByTestId('action-delete')).toBeInTheDocument()
+    expect(screen.queryByTestId('action-delete-confirm')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('action-delete-cancel')).not.toBeInTheDocument()
+
+    await user.click(screen.getByTestId('action-delete'))
+
+    // After clicking Delete, confirm/cancel appear and Delete button hides
+    expect(screen.queryByTestId('action-delete')).not.toBeInTheDocument()
+    expect(screen.getByTestId('action-delete-confirm')).toBeInTheDocument()
+    expect(screen.getByTestId('action-delete-cancel')).toBeInTheDocument()
+  })
+
+  it('clicking Cancel restores Delete button and does not call deleteTask', async () => {
+    const user = userEvent.setup()
+    render(
+      <TaskDetailModal
+        task={baseTask}
+        activityEntries={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByTestId('action-delete'))
+    await user.click(screen.getByTestId('action-delete-cancel'))
+
+    // Confirm/cancel should be gone, Delete button should be back
+    expect(screen.queryByTestId('action-delete-confirm')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('action-delete-cancel')).not.toBeInTheDocument()
+    expect(screen.getByTestId('action-delete')).toBeInTheDocument()
+
+    // deleteTask must NOT have been called
+    expect(mockDeleteTask).not.toHaveBeenCalled()
+  })
+
+  it('clicking Confirm calls deleteTask and closes modal', async () => {
+    const user = userEvent.setup()
+    const onOpenChange = vi.fn()
+    render(
+      <TaskDetailModal
+        task={baseTask}
+        activityEntries={[]}
+        open
+        onOpenChange={onOpenChange}
+      />,
+    )
+
+    await user.click(screen.getByTestId('action-delete'))
+    await user.click(screen.getByTestId('action-delete-confirm'))
+
+    await waitFor(() => {
+      expect(mockDeleteTask).toHaveBeenCalledWith({ taskId: 'j57-task-1' })
+    })
+    expect(mockToastSuccess).toHaveBeenCalledWith('Task deleted', expect.any(Object))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('shows error toast and keeps modal open when deleteTask fails', async () => {
+    const user = userEvent.setup()
+    const onOpenChange = vi.fn()
+    mockDeleteTask.mockRejectedValueOnce(new Error('Delete failed'))
+
+    render(
+      <TaskDetailModal
+        task={baseTask}
+        activityEntries={[]}
+        open
+        onOpenChange={onOpenChange}
+      />,
+    )
+
+    await user.click(screen.getByTestId('action-delete'))
+    await user.click(screen.getByTestId('action-delete-confirm'))
+
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith('Failed to delete task', {
+        description: 'Delete failed',
+      })
+    })
+    expect(onOpenChange).not.toHaveBeenCalled()
   })
 })

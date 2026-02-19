@@ -1,8 +1,8 @@
 import { createFileRoute, useNavigate, redirect } from '@tanstack/react-router'
-import { useQuery } from 'convex/react'
+import { useMutation, useQuery } from 'convex/react'
 import { convex } from '../lib/convex'
 import { api } from '../../convex/_generated/api'
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useFilters } from '../hooks/useFilters'
 import { useSearch } from '../hooks/useSearch'
 import { useReducedMotion } from '../hooks/useReducedMotion'
@@ -25,6 +25,7 @@ import { getSession } from '../lib/auth-middleware'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { EmptyState } from '../components/EmptyState'
 import { BoardSkeleton } from '../components/skeletons'
+import { toast } from 'sonner'
 
 type DashboardView = 'board' | 'workload'
 
@@ -209,7 +210,12 @@ export function DashboardBoard({
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [isNewTaskOpen, setIsNewTaskOpen] = useState(false)
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false)
+  const [newTaskTitle, setNewTaskTitle] = useState('')
+  const [newTaskDescription, setNewTaskDescription] = useState('')
+  const [newTaskError, setNewTaskError] = useState<string | null>(null)
+  const [isCreatingTask, setIsCreatingTask] = useState(false)
   const focusedTaskIndexRef = useRef<number>(-1)
+  const createTask = useMutation(api.tasks.createTask)
 
   const setActiveView = useCallback(
     (view: DashboardView) => {
@@ -327,6 +333,37 @@ export function DashboardBoard({
     [tasks],
   )
 
+  const handleCreateTask = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const title = newTaskTitle.trim()
+    if (!title) {
+      setNewTaskError('Title is required.')
+      return
+    }
+
+    setIsCreatingTask(true)
+    setNewTaskError(null)
+    try {
+      await createTask({
+        title,
+        description: newTaskDescription.trim() || undefined,
+        priority: 'normal',
+        project: '',
+        createdBy: 'user',
+      })
+      setIsNewTaskOpen(false)
+      setNewTaskTitle('')
+      setNewTaskDescription('')
+      setNewTaskError(null)
+      toast.success('Task created')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create task'
+      toast.error(message)
+    } finally {
+      setIsCreatingTask(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto">
@@ -439,25 +476,44 @@ export function DashboardBoard({
               Quick-create a task from anywhere with the keyboard.
             </SheetDescription>
           </SheetHeader>
-          <div className="mt-6 space-y-4">
+          <form className="mt-6 space-y-4" onSubmit={(event) => void handleCreateTask(event)}>
             <label className="block">
               <span className="mb-1 block text-sm font-medium">Title</span>
               <input
+                data-testid="new-task-title-input"
                 type="text"
                 placeholder="Task title"
+                value={newTaskTitle}
+                onChange={(event) => {
+                  setNewTaskTitle(event.target.value)
+                  if (newTaskError) setNewTaskError(null)
+                }}
                 className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </label>
+            {newTaskError && (
+              <p role="alert" className="text-sm text-destructive">{newTaskError}</p>
+            )}
             <label className="block">
               <span className="mb-1 block text-sm font-medium">Description</span>
               <textarea
+                data-testid="new-task-description-input"
                 rows={5}
                 placeholder="Task details"
+                value={newTaskDescription}
+                onChange={(event) => setNewTaskDescription(event.target.value)}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
             </label>
-            <Button className="w-full">Create Task</Button>
-          </div>
+            <Button
+              data-testid="new-task-submit"
+              className="w-full"
+              type="submit"
+              disabled={isCreatingTask}
+            >
+              Create Task
+            </Button>
+          </form>
         </SheetContent>
       </Sheet>
     </div>

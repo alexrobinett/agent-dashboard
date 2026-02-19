@@ -14,6 +14,12 @@ const config = defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  server: {
+    allowedHosts: ['.up.railway.app'],
+  },
+  preview: {
+    allowedHosts: ['.up.railway.app'],
+  },
   plugins: [
     devtools(),
     nitro({

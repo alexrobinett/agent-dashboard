@@ -1,0 +1,11 @@
+[phases.install]
+cache = { enabled = true }
+
+[phases.build]
+cmds = ["pnpm install --frozen-lockfile", "pnpm build"]
+
+[start]
+cmd = "pnpm start"
+
+[apt]
+packages = ["python3", "make", "g++"]

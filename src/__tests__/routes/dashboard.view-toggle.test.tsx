@@ -1,6 +1,40 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { DashboardBoard } from '../../routes/dashboard'
+
+const mockCreateTask = vi.fn()
+
+vi.mock('../../../convex/_generated/api', () => ({
+  api: {
+    tasks: {
+      createTask: 'tasks:createTask',
+    },
+  },
+}))
+
+vi.mock('convex/react', () => ({
+  useMutation: (ref: string) => {
+    if (ref === 'tasks:createTask') return mockCreateTask
+    return vi.fn()
+  },
+  ConvexReactClient: class {
+    setAuth() {}
+    clearAuth() {}
+    onUpdate() { return () => {} }
+    watchQuery() { return { getCurrentValue: () => undefined, subscribe: () => () => {} } }
+  },
+}))
+
+const mockToastSuccess = vi.fn()
+const mockToastError = vi.fn()
+
+vi.mock('sonner', () => ({
+  toast: {
+    success: (...args: any[]) => mockToastSuccess(...args),
+    error: (...args: any[]) => mockToastError(...args),
+  },
+}))
 
 const mockNavigate = vi.fn()
 const mockSetFilter = vi.fn()
@@ -136,6 +170,9 @@ function renderBoard(overrides?: { tasks?: any; activeView?: 'board' | 'workload
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockCreateTask.mockResolvedValue('ok')
+  mockToastSuccess.mockReset()
+  mockToastError.mockReset()
   mockFilters = { search: '', project: '', agent: '', priority: '' }
   mockHasActiveFilters = false
   mockReducedMotion = false
@@ -289,5 +326,92 @@ describe('DashboardBoard view toggles and board branches', () => {
     recorded.keyboardHandlers?.onNavigateUp()
     expect(document.activeElement).toBe(card3)
     card3.remove()
+  })
+})
+
+describe('handleCreateTask', () => {
+  it('shows validation error when title is empty and does not call createTask', async () => {
+    const user = userEvent.setup()
+    renderBoard()
+
+    // Open the new task sheet
+    await user.click(screen.getByTestId('new-task-button'))
+
+    // Submit with empty title
+    await user.click(screen.getByTestId('new-task-submit'))
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Title is required.')
+    expect(mockCreateTask).not.toHaveBeenCalled()
+  })
+
+  it('calls createTask with title and description, then shows success toast', async () => {
+    const user = userEvent.setup()
+    renderBoard()
+
+    await user.click(screen.getByTestId('new-task-button'))
+
+    await user.type(screen.getByTestId('new-task-title-input'), 'New test task')
+    await user.type(screen.getByTestId('new-task-description-input'), 'Task description')
+
+    await user.click(screen.getByTestId('new-task-submit'))
+
+    await waitFor(() => {
+      expect(mockCreateTask).toHaveBeenCalledWith({
+        title: 'New test task',
+        description: 'Task description',
+        priority: 'normal',
+        project: '',
+        createdBy: 'user',
+      })
+    })
+    expect(mockToastSuccess).toHaveBeenCalledWith('Task created')
+  })
+
+  it('calls createTask without description when description is blank', async () => {
+    const user = userEvent.setup()
+    renderBoard()
+
+    await user.click(screen.getByTestId('new-task-button'))
+    await user.type(screen.getByTestId('new-task-title-input'), 'Title only task')
+    await user.click(screen.getByTestId('new-task-submit'))
+
+    await waitFor(() => {
+      expect(mockCreateTask).toHaveBeenCalledWith({
+        title: 'Title only task',
+        description: undefined,
+        priority: 'normal',
+        project: '',
+        createdBy: 'user',
+      })
+    })
+  })
+
+  it('shows error toast when createTask throws', async () => {
+    const user = userEvent.setup()
+    mockCreateTask.mockRejectedValueOnce(new Error('Server error'))
+    renderBoard()
+
+    await user.click(screen.getByTestId('new-task-button'))
+    await user.type(screen.getByTestId('new-task-title-input'), 'Failing task')
+    await user.click(screen.getByTestId('new-task-submit'))
+
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith('Server error')
+    })
+  })
+
+  it('clears validation error when user starts typing in title', async () => {
+    const user = userEvent.setup()
+    renderBoard()
+
+    await user.click(screen.getByTestId('new-task-button'))
+
+    // Submit with empty title to trigger error
+    await user.click(screen.getByTestId('new-task-submit'))
+    expect(screen.getByRole('alert')).toHaveTextContent('Title is required.')
+
+    // Start typing to clear the error
+    await user.type(screen.getByTestId('new-task-title-input'), 'A')
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })
