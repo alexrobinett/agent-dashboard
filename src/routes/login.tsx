@@ -1,6 +1,6 @@
 // auth route
 import { createFileRoute } from '@tanstack/react-router'
-import { signIn, useSession } from '../lib/auth-client'
+import { signIn, useSession } from '../lib/auth.client'
 import { useRouter } from '@tanstack/react-router'
 import { useEffect } from 'react'
 import { getGithubOAuthEnabled } from '../lib/auth-middleware'

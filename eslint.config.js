@@ -48,6 +48,24 @@ export default [
     },
   },
   {
+    files: ['src/**/*.ts', 'src/**/*.tsx'],
+    ignores: ['src/**/*.server.ts', 'src/**/*.server.tsx', 'src/routes/api/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@tanstack/react-start/server',
+              message:
+                'Server runtime helpers are only allowed in *.server.* files (or API routes).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     ignores: [
       'dist/',
       'node_modules/',

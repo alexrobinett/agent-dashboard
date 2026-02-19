@@ -27,6 +27,7 @@ const listFilteredHandler = (taskModule.listFiltered as unknown as HandlerExtrac
 const getWorkloadHandler = (taskModule.getWorkload as unknown as HandlerExtractor).handler
 const createHandler = (taskModule.create as unknown as HandlerExtractor).handler
 const updateHandler = (taskModule.update as unknown as HandlerExtractor).handler
+const backfillFriendlyTaskKeysHandler = (taskModule.backfillFriendlyTaskKeys as unknown as HandlerExtractor).handler
 
 // New mutation handlers (clawd workflow)
 const pushStatusHandler = (taskModule.pushStatus as unknown as HandlerExtractor).handler
@@ -1306,6 +1307,13 @@ describe('createTask — full validation', () => {
     await createTaskHandler(ctx, { title: 'Test' })
     expect(ctx._inserted[0].doc.createdBy).toBe('main')
   })
+
+  it('should assign a friendly task key on create', async () => {
+    const ctx = mockCtx([])
+    await createTaskHandler(ctx, { title: 'Test' })
+    expect(ctx._inserted[0].doc.taskNumber).toBe(1)
+    expect(ctx._inserted[0].doc.taskKey).toBe('AD-1')
+  })
 })
 
 // ──────────────────────────────────────────────────────────
@@ -1880,5 +1888,24 @@ describe('Pure function exports', () => {
     ]
     const result = taskModule.aggregateWorkloadEntries(tasks, { priority: 'high' })
     expect(result).toHaveLength(1)
+  })
+})
+
+describe('friendly task key backfill', () => {
+  it('backfills rows missing task keys without overwriting existing keys', async () => {
+    const tasks = [
+      makeTask({ _id: 'a' as TaskId, title: 'Old 1', createdAt: 1000 }),
+      makeTask({ _id: 'b' as TaskId, title: 'Old 2', createdAt: 2000 }),
+      makeTask({ _id: 'c' as TaskId, title: 'New', createdAt: 3000, taskNumber: 99 as any, taskKey: 'AD-99' as any }),
+    ]
+    const ctx = mockCtx(tasks)
+
+    const result = await backfillFriendlyTaskKeysHandler(ctx, { limit: 10 })
+
+    expect(result.updated).toBe(2)
+    expect(ctx._patches).toHaveLength(2)
+    const keysById = new Map(ctx._patches.map((p) => [String(p.id), String(p.fields.taskKey)]))
+    expect(keysById.get('a')).toBe('AD-101')
+    expect(keysById.get('b')).toBe('AD-100')
   })
 })

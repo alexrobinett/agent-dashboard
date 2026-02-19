@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation } from 'convex/react'
 import { api } from '../../convex/_generated/api'
 import { toast } from 'sonner'
-import { Loader2 } from 'lucide-react'
+import { Copy, Loader2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -22,6 +22,7 @@ export interface TaskDetail {
   priority: string
   assignedAgent?: string
   project?: string
+  taskKey?: string
 }
 
 export interface TaskDetailModalProps {
@@ -72,6 +73,15 @@ export function TaskDetailModal({
   const canComplete = task.status !== 'done' && task.status !== 'cancelled'
   const canBlock = task.status !== 'blocked' && task.status !== 'done'
 
+  const copyToClipboard = async (label: string, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value)
+      toast.success(`${label} copied`, { description: value })
+    } catch {
+      toast.error(`Failed to copy ${label.toLowerCase()}`)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -88,6 +98,23 @@ export function TaskDetailModal({
         </DialogHeader>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant="outline" className="font-mono">{task.taskKey ?? task._id}</Badge>
+          <Button
+            data-testid="copy-task-key"
+            variant="ghost"
+            size="sm"
+            onClick={() => copyToClipboard('Task key', task.taskKey ?? task._id)}
+          >
+            <Copy className="h-3.5 w-3.5 mr-1" /> Copy key
+          </Button>
+          <Button
+            data-testid="copy-task-id"
+            variant="ghost"
+            size="sm"
+            onClick={() => copyToClipboard('Task id', task._id)}
+          >
+            <Copy className="h-3.5 w-3.5 mr-1" /> Copy ID
+          </Button>
           <Badge variant={STATUS_VARIANT[task.status] ?? 'outline'}>
             {task.status}
           </Badge>

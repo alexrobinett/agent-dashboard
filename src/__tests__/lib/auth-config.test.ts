@@ -34,7 +34,7 @@ vi.mock('better-sqlite3', () => ({
 // ---------------------------------------------------------------------------
 async function loadAuthModule() {
   vi.resetModules()
-  await import('../../lib/auth')
+  await import('../../lib/auth.server')
 }
 
 /** Pull the typed `advanced` block from the captured config. */

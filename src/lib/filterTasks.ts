@@ -1,6 +1,8 @@
 import type { FilterState } from '../hooks/useFilters'
 
 interface Task {
+  _id?: string
+  taskKey?: string
   title: string
   description?: string
   project?: string
@@ -17,7 +19,9 @@ export function filterTasks<T extends Task>(tasks: T[], filters: FilterState): T
       const query = filters.search.toLowerCase()
       const title = task.title.toLowerCase()
       const description = (task.description ?? '').toLowerCase()
-      if (!title.includes(query) && !description.includes(query)) return false
+      const taskKey = (task.taskKey ?? '').toLowerCase()
+      const id = (task._id ?? '').toLowerCase()
+      if (!title.includes(query) && !description.includes(query) && !taskKey.includes(query) && !id.includes(query)) return false
     }
     return true
   })

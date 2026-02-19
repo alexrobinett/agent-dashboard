@@ -1,6 +1,4 @@
 import { createServerFn } from '@tanstack/react-start'
-import { getRequest } from '@tanstack/react-start/server'
-import { auth, githubOAuthEnabled } from './auth'
 
 /**
  * Server function to get the current session.
@@ -16,11 +14,14 @@ import { auth, githubOAuthEnabled } from './auth'
  * show or hide the GitHub sign-in button without exposing credentials.
  */
 export const getGithubOAuthEnabled = createServerFn({ method: 'GET' }).handler(
-  async () => githubOAuthEnabled,
+  async () => {
+    const { githubOAuthEnabled } = await import('./auth.server')
+    return githubOAuthEnabled
+  },
 )
 
 export const getSession = createServerFn({ method: 'GET' }).handler(
-  async () => {
+  async (ctx) => {
     // CI/E2E bypass: allows Playwright smoke tests to access protected routes.
     // Requires BOTH: NODE_ENV=test (not just non-production) AND an explicit
     // E2E_BYPASS_AUTH=true flag, so this never fires in dev or arbitrary test runs.
@@ -34,7 +35,8 @@ export const getSession = createServerFn({ method: 'GET' }).handler(
       }
     }
     try {
-      const request = getRequest()
+      const { auth } = await import('./auth.server')
+      const request = (ctx as unknown as { request: Request }).request
       const session = await auth.api.getSession({
         headers: request.headers,
       })
