@@ -2,7 +2,7 @@ import { Link } from '@tanstack/react-router'
 
 import { useState } from 'react'
 import { Home, Menu, X, LogOut, Bot } from 'lucide-react'
-import { useSession, signOut } from '../lib/auth-client'
+import { useSession, signOut } from '../lib/auth.client'
 
 export default function Header() {
   const [isOpen, setIsOpen] = useState(false)
