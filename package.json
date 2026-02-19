@@ -4,7 +4,6 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev --port 3000",
-    "prebuild": "convex codegen",
     "build": "vite build",
     "preview": "vite preview",
     "pretest": "bash scripts/generate-stubs.sh",
