@@ -53,7 +53,7 @@ function LoginPage() {
                 callbackURL: '/dashboard',
               })
             }
-            className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors border border-gray-600"
+            className="w-full flex items-center justify-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-card-foreground transition-colors hover:bg-secondary"
           >
             <svg
               className="w-5 h-5"
