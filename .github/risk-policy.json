@@ -1,0 +1,26 @@
+{
+  "version": "1",
+  "riskTierRules": {
+    "high": [
+      "app/api/**",
+      "lib/auth/**",
+      "lib/utils/**",
+      "db/**",
+      "prisma/**",
+      ".env*",
+      "middleware.ts",
+      "next.config.*"
+    ],
+    "low": ["**"]
+  },
+  "mergePolicy": {
+    "high": {
+      "requiredChecks": ["sentinel-gate", "CI Pipeline"],
+      "requiresReview": true
+    },
+    "low": {
+      "requiredChecks": ["CI Pipeline"],
+      "requiresReview": false
+    }
+  }
+}
