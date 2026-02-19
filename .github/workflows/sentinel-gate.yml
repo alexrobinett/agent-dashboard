@@ -7,40 +7,68 @@ on:
 permissions:
   contents: read
   pull-requests: read
-  actions: read
+  statuses: read
 
 jobs:
-  sha-discipline:
-    name: SHA Discipline Check
+  sentinel-review-check:
+    name: Sentinel Review Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Load risk policy
+      - name: Determine risk tier
         id: risk
         run: |
           if [[ ! -f .github/risk-policy.json ]]; then
             echo "tier=low" >> $GITHUB_OUTPUT
+            echo "No risk-policy.json found, defaulting to low"
             exit 0
           fi
-          # Check if any changed files are high-risk
-          CHANGED=$(gh pr view ${{ github.event.pull_request.number }} --json files --jq '[.files[].path] | join("\n")')
-          HIGH_PATTERNS=$(jq -r '.riskTierRules.high[]' .github/risk-policy.json)
+
+          CHANGED_FILES=$(gh api /repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files \
+            --jq '[.[].filename] | join("\n")')
+
           TIER="low"
           while IFS= read -r pattern; do
-            if echo "$CHANGED" | grep -qE "$(echo "$pattern" | sed 's/\*\*/[^]*/g; s/\*/[^/]*/g')"; then
+            # Convert glob to regex safely using bash parameter expansion
+            regex="${pattern//\*\*/DOUBLESTAR}"
+            regex="${regex//\*/[^/]*}"
+            regex="${regex//DOUBLESTAR/.*}"
+            if echo "$CHANGED_FILES" | grep -qE "^${regex}$"; then
               TIER="high"
               break
             fi
-          done <<< "$HIGH_PATTERNS"
+          done < <(jq -r '.riskTierRules.high[]' .github/risk-policy.json)
+
           echo "tier=$TIER" >> $GITHUB_OUTPUT
           echo "Detected risk tier: $TIER"
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Enforce SHA discipline (high-risk only)
+      - name: Check Sentinel review status
         if: steps.risk.outputs.tier == 'high'
-        uses: ./.github/actions/sentinel-gate
-        with:
-          mode: check
-          sha: ${{ github.event.pull_request.head.sha }}
+        run: |
+          SHA="${{ github.event.pull_request.head.sha }}"
+          REPO="${{ github.repository }}"
+
+          STATUS=$(gh api /repos/$REPO/commits/$SHA/statuses \
+            --jq '[.[] | select(.context == "sentinel-review")] | .[0].state // "pending"')
+
+          echo "Sentinel review status for $SHA: $STATUS"
+
+          if [[ "$STATUS" == "success" ]]; then
+            echo "✅ Sentinel approved this commit"
+          elif [[ "$STATUS" == "failure" ]]; then
+            echo "❌ Sentinel requested changes — cannot merge until addressed"
+            exit 1
+          else
+            echo "⏳ No Sentinel review found for this commit yet"
+            echo "High-risk changes require Sentinel review before merge"
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Low-risk path
+        if: steps.risk.outputs.tier == 'low'
+        run: echo "✅ Low-risk change — Sentinel review not required"
