@@ -4,7 +4,9 @@ import { Toaster } from 'sonner'
 
 import Header from '../components/Header'
 import { NetworkStatusBanner } from '../components/NetworkStatusBanner'
+import { ThemeProvider, useTheme } from '../components/ThemeProvider'
 import { convexReactClient } from '../lib/convex'
+import { getThemeInitScript } from '../lib/theme'
 
 import appCss from '../styles.css?url'
 
@@ -34,19 +36,28 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: getThemeInitScript() }} />
         <HeadContent />
       </head>
-      <body className="dark">
-        <ConvexProvider client={convexReactClient}>
-          <NetworkStatusBanner />
-          <Header />
-          {children}
-        </ConvexProvider>
-        <Toaster theme="dark" position="bottom-right" richColors />
+      <body>
+        <ThemeProvider>
+          <ConvexProvider client={convexReactClient}>
+            <NetworkStatusBanner />
+            <Header />
+            {children}
+          </ConvexProvider>
+          <ThemedToaster />
+        </ThemeProvider>
         <Scripts />
       </body>
     </html>
   )
+}
+
+function ThemedToaster() {
+  const { resolvedTheme } = useTheme()
+
+  return <Toaster theme={resolvedTheme} position="bottom-right" richColors />
 }

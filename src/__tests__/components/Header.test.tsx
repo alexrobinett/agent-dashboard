@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 
 // Mock @tanstack/react-router
 vi.mock('@tanstack/react-router', () => ({
-  Link: ({ children, to, onClick, className, _activeProps, ...props }: any) => (
+  Link: ({ children, to, onClick, className, activeProps: _activeProps, ...props }: any) => (
     <a href={to} onClick={onClick} className={className} {...props}>
       {children}
     </a>
@@ -11,17 +11,26 @@ vi.mock('@tanstack/react-router', () => ({
 }))
 
 import Header from '../../components/Header'
+import { ThemeProvider } from '../../components/ThemeProvider'
+
+function renderHeader() {
+  return render(
+    <ThemeProvider>
+      <Header />
+    </ThemeProvider>,
+  )
+}
 
 describe('Header', () => {
   it('should render without errors', () => {
-    render(<Header />)
+    renderHeader()
 
     const header = document.querySelector('header')
     expect(header).not.toBeNull()
   })
 
   it('should render the Agent Dashboard branding link to home', () => {
-    render(<Header />)
+    renderHeader()
 
     const brandLink = screen.getByText('Agent Dashboard')
     expect(brandLink).toBeDefined()
@@ -29,14 +38,14 @@ describe('Header', () => {
   })
 
   it('should render the menu button with accessible label', () => {
-    render(<Header />)
+    renderHeader()
 
     const menuButton = screen.getByLabelText('Open menu')
     expect(menuButton).toBeDefined()
   })
 
   it('should open sidebar when menu button is clicked', () => {
-    render(<Header />)
+    renderHeader()
 
     const menuButton = screen.getByLabelText('Open menu')
     fireEvent.click(menuButton)
@@ -48,7 +57,7 @@ describe('Header', () => {
   })
 
   it('should close sidebar when close button is clicked', () => {
-    render(<Header />)
+    renderHeader()
 
     // Open the sidebar first
     fireEvent.click(screen.getByLabelText('Open menu'))
@@ -60,19 +69,19 @@ describe('Header', () => {
   })
 
   it('should render navigation with Home link', () => {
-    render(<Header />)
+    renderHeader()
 
     expect(screen.getByText('Home')).toBeDefined()
   })
 
   it('should render Navigation heading in sidebar', () => {
-    render(<Header />)
+    renderHeader()
 
     expect(screen.getByText('Navigation')).toBeDefined()
   })
 
   it('should close sidebar when a nav link is clicked', () => {
-    render(<Header />)
+    renderHeader()
 
     // Open the sidebar
     fireEvent.click(screen.getByLabelText('Open menu'))
