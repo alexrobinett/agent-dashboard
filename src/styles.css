@@ -122,3 +122,16 @@
     scroll-behavior: auto !important;
   }
 }
+
+@layer utilities {
+  /* Hide scrollbar chrome while preserving scrolling + keyboard access. */
+  .scrollbar-chrome-hidden {
+    -ms-overflow-style: none; /* Legacy Edge + IE */
+    scrollbar-width: none; /* Firefox */
+  }
+
+  .scrollbar-chrome-hidden::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+}

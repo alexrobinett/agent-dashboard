@@ -191,7 +191,7 @@ function DashboardLiveComponent({
   )
 }
 
-function DashboardBoard({
+export function DashboardBoard({
   tasks,
   workload,
   activityEntries,
@@ -393,15 +393,13 @@ function DashboardBoard({
           searchInputRef={searchInputRef}
         />
 
-        {/* WorkloadChart is always rendered so E2E and integration tests can find
-            data-testid="workload-chart" regardless of the active view tab.
-            In board view it sits between the filter bar and the Kanban board;
-            in workload view it is the primary focus (the board is hidden). */}
-        <ErrorBoundary title="Workload chart error" inline>
-          <div data-testid="workload-view-panel">
-            <WorkloadChart data={workload} onAgentClick={handleAgentClick} />
-          </div>
-        </ErrorBoundary>
+        {activeView === 'workload' && (
+          <ErrorBoundary title="Workload chart error" inline>
+            <div data-testid="workload-view-panel">
+              <WorkloadChart data={workload} onAgentClick={handleAgentClick} />
+            </div>
+          </ErrorBoundary>
+        )}
 
         {activeView !== 'workload' && (
           hasActiveFilters && totalFilteredTasks === 0 ? (

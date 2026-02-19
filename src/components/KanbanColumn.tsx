@@ -45,7 +45,7 @@ export function KanbanColumn({ status, tasks, emptyMessage = 'No tasks' }: Kanba
         tabIndex={0}
         role="region"
         aria-label={`${status.replace('_', ' ')} tasks`}
-        className="flex-1 overflow-y-auto px-4 py-3 space-y-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+        className="scrollbar-chrome-hidden flex-1 overflow-y-auto px-4 py-3 space-y-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
       >
         {tasks.length === 0 ? (
           <p

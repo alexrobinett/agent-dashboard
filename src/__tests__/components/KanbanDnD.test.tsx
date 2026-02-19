@@ -213,6 +213,16 @@ describe('KanbanColumn - Droppable Column', () => {
     render(<KanbanColumn status="blocked" tasks={[]} />)
     expect(screen.getByTestId('column-blocked')).toBeDefined()
   })
+
+  it('should hide scrollbar chrome while keeping the lane focusable and scrollable', () => {
+    render(<KanbanColumn status="planning" tasks={[mockTask]} />)
+    const lane = screen.getByTestId('column-scroll-planning')
+
+    expect(lane.className).toContain('scrollbar-chrome-hidden')
+    expect(lane.className).toContain('overflow-y-auto')
+    expect(lane.getAttribute('tabindex')).toBe('0')
+    expect(lane.getAttribute('role')).toBe('region')
+  })
 })
 
 describe('KanbanBoard - DndContext Wrapper', () => {
