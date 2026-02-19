@@ -1,0 +1,201 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { TaskDetailModal } from '../../components/TaskDetailModal'
+
+const mockUpdateTask = vi.fn()
+const mockClaimTask = vi.fn()
+const mockCompleteTask = vi.fn()
+const mockToastSuccess = vi.fn()
+const mockToastError = vi.fn()
+
+vi.mock('../../../convex/_generated/api', () => ({
+  api: {
+    tasks: {
+      updateTask: 'updateTask',
+      claimTask: 'claimTask',
+      completeTask: 'completeTask',
+    },
+  },
+}))
+
+vi.mock('convex/react', () => ({
+  useMutation: (ref: string) => {
+    if (ref === 'updateTask') return mockUpdateTask
+    if (ref === 'claimTask') return mockClaimTask
+    if (ref === 'completeTask') return mockCompleteTask
+    return vi.fn()
+  },
+}))
+
+vi.mock('sonner', () => ({
+  toast: {
+    success: (...args: any[]) => mockToastSuccess(...args),
+    error: (...args: any[]) => mockToastError(...args),
+  },
+}))
+
+const baseTask = {
+  _id: 'j57-task-1',
+  title: 'Original title',
+  description: 'Original description',
+  status: 'planning',
+  priority: 'normal',
+  taskKey: 'T-101',
+}
+
+describe('TaskDetailModal edit flow', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUpdateTask.mockResolvedValue('ok')
+    mockClaimTask.mockResolvedValue('ok')
+    mockCompleteTask.mockResolvedValue('ok')
+  })
+
+  it('opens and enters edit mode from the edit affordance', async () => {
+    const user = userEvent.setup()
+    render(
+      <TaskDetailModal
+        task={baseTask}
+        activityEntries={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByTestId('task-detail-modal')).toBeInTheDocument()
+    await user.click(screen.getByTestId('edit-task-button'))
+
+    expect(screen.getByTestId('edit-title-input')).toBeInTheDocument()
+    expect(screen.getByTestId('edit-description-input')).toBeInTheDocument()
+  })
+
+  it('saves edited title/description and calls updateTask with canonical _id', async () => {
+    const user = userEvent.setup()
+    render(
+      <TaskDetailModal
+        task={baseTask}
+        activityEntries={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByTestId('edit-task-button'))
+    await user.clear(screen.getByTestId('edit-title-input'))
+    await user.type(screen.getByTestId('edit-title-input'), 'Updated title')
+    await user.clear(screen.getByTestId('edit-description-input'))
+    await user.type(screen.getByTestId('edit-description-input'), 'Updated description')
+    await user.click(screen.getByTestId('save-task-button'))
+
+    await waitFor(() => {
+      expect(mockUpdateTask).toHaveBeenCalledWith({
+        taskId: 'j57-task-1',
+        title: 'Updated title',
+        description: 'Updated description',
+      })
+    })
+    expect(mockToastSuccess).toHaveBeenCalledWith('Task details saved')
+  })
+
+  it('cancels edit and restores previous values without saving', async () => {
+    const user = userEvent.setup()
+    render(
+      <TaskDetailModal
+        task={baseTask}
+        activityEntries={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByTestId('edit-task-button'))
+    await user.clear(screen.getByTestId('edit-title-input'))
+    await user.type(screen.getByTestId('edit-title-input'), 'Discarded title')
+    await user.click(screen.getByTestId('cancel-task-button'))
+
+    expect(screen.queryByTestId('edit-title-input')).not.toBeInTheDocument()
+    expect(mockUpdateTask).not.toHaveBeenCalled()
+    expect(screen.getByTestId('task-detail-title')).toHaveTextContent('Original title')
+  })
+
+  it('shows validation error when title is empty', async () => {
+    const user = userEvent.setup()
+    render(
+      <TaskDetailModal
+        task={baseTask}
+        activityEntries={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByTestId('edit-task-button'))
+    await user.clear(screen.getByTestId('edit-title-input'))
+    await user.click(screen.getByTestId('save-task-button'))
+
+    expect(screen.getByTestId('task-edit-error')).toHaveTextContent('Title is required.')
+    expect(mockUpdateTask).not.toHaveBeenCalled()
+  })
+
+  it('supports keyboard save with Ctrl+S', async () => {
+    const user = userEvent.setup()
+    render(
+      <TaskDetailModal
+        task={baseTask}
+        activityEntries={[]}
+        open
+        onOpenChange={vi.fn()}
+      />,
+    )
+
+    await user.click(screen.getByTestId('edit-task-button'))
+    await user.clear(screen.getByTestId('edit-title-input'))
+    await user.type(screen.getByTestId('edit-title-input'), 'Saved by keyboard')
+    await user.keyboard('{Control>}s{/Control}')
+
+    await waitFor(() => {
+      expect(mockUpdateTask).toHaveBeenCalledWith({
+        taskId: 'j57-task-1',
+        title: 'Saved by keyboard',
+        description: 'Original description',
+      })
+    })
+  })
+
+  it('handles save failure, rolls back optimistic patch, and surfaces clear error messaging', async () => {
+    const user = userEvent.setup()
+    const onTaskPatched = vi.fn()
+    mockUpdateTask.mockRejectedValueOnce(new Error('Network down'))
+
+    render(
+      <TaskDetailModal
+        task={baseTask}
+        activityEntries={[]}
+        open
+        onOpenChange={vi.fn()}
+        onTaskPatched={onTaskPatched}
+      />,
+    )
+
+    await user.click(screen.getByTestId('edit-task-button'))
+    await user.clear(screen.getByTestId('edit-title-input'))
+    await user.type(screen.getByTestId('edit-title-input'), 'Original title v2')
+    await user.click(screen.getByTestId('save-task-button'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('task-edit-error')).toHaveTextContent('Network down')
+    })
+    expect(mockToastError).toHaveBeenCalledWith('Failed to save task details', {
+      description: 'Network down',
+    })
+    expect(onTaskPatched).toHaveBeenNthCalledWith(1, 'j57-task-1', {
+      title: 'Original title v2',
+      description: 'Original description',
+    })
+    expect(onTaskPatched).toHaveBeenNthCalledWith(2, 'j57-task-1', {
+      title: 'Original title',
+      description: 'Original description',
+    })
+  })
+})

@@ -6,15 +6,17 @@ interface TaskCardProps {
   task: {
     _id: string
     title: string
+    description?: string
     assignedAgent?: string
     priority?: string
     project?: string
     status?: string
     taskKey?: string
   }
+  onOpenDetails?: (task: TaskCardProps['task']) => void
 }
 
-export function TaskCard({ task }: TaskCardProps) {
+export function TaskCard({ task, onOpenDetails }: TaskCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: task._id,
     data: { task },
@@ -68,6 +70,28 @@ export function TaskCard({ task }: TaskCardProps) {
               </>
             )}
           </div>
+          {onOpenDetails && (
+            <span
+              role="link"
+              tabIndex={0}
+              data-testid={`task-details-button-${task._id}`}
+              className="mt-2 inline-block text-xs text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                onOpenDetails(task)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  onOpenDetails(task)
+                }
+              }}
+            >
+              Open details
+            </span>
+          )}
         </div>
       </div>
     </div>

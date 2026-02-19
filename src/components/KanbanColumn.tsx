@@ -6,15 +6,18 @@ interface KanbanColumnProps {
   tasks: Array<{
     _id: string
     title: string
+    description?: string
     assignedAgent?: string
     priority?: string
     project?: string
     status?: string
+    taskKey?: string
   }>
   emptyMessage?: string
+  onOpenTaskDetails?: (task: KanbanColumnProps['tasks'][number]) => void
 }
 
-export function KanbanColumn({ status, tasks, emptyMessage = 'No tasks' }: KanbanColumnProps) {
+export function KanbanColumn({ status, tasks, emptyMessage = 'No tasks', onOpenTaskDetails }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: status })
 
   return (
@@ -55,7 +58,13 @@ export function KanbanColumn({ status, tasks, emptyMessage = 'No tasks' }: Kanba
             {emptyMessage}
           </p>
         ) : (
-          tasks.map((task) => <TaskCard key={task._id} task={task} />)
+          tasks.map((task) => (
+            <TaskCard
+              key={task._id}
+              task={task}
+              onOpenDetails={onOpenTaskDetails}
+            />
+          ))
         )}
       </div>
     </div>
