@@ -85,6 +85,7 @@ export const api = {
     getById: {} as any,
     create: {} as any,
     update: {} as any,
+    updateTask: {} as any,
     claimTask: {} as any,
     completeTask: {} as any,
   },
