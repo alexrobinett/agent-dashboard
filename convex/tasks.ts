@@ -68,6 +68,55 @@ export function sanitizeOptionalText(value: string | undefined, maxLen = 4000): 
   return sanitizeText(value, maxLen)
 }
 
+export function formatTaskKey(taskNumber: number): string {
+  return `AD-${taskNumber}`
+}
+
+function parseTaskNumberFromKey(taskKey?: string): number | null {
+  if (!taskKey) return null
+  const match = /^AD-(\d+)$/i.exec(taskKey.trim())
+  if (!match) return null
+  const parsed = Number.parseInt(match[1], 10)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+async function getMaxTaskNumber(ctx: { db: { query: (table: 'tasks') => any } }): Promise<number> {
+  const baseQuery = ctx.db.query('tasks')
+  const maybeWithIndex = (baseQuery as { withIndex?: (name: string, fn?: (q: any) => any) => any }).withIndex
+
+  if (typeof maybeWithIndex === 'function') {
+    const rows = await maybeWithIndex.call(baseQuery, 'by_task_number').order('desc').take(500)
+    let max = 0
+    for (const row of rows) {
+      if (typeof row.taskNumber === 'number') {
+        max = Math.max(max, row.taskNumber)
+      } else {
+        max = Math.max(max, parseTaskNumberFromKey(row.taskKey) ?? 0)
+      }
+    }
+    return max
+  }
+
+  const rows = await baseQuery.order('desc').take(1000)
+  let max = 0
+  for (const row of rows) {
+    if (typeof row.taskNumber === 'number') {
+      max = Math.max(max, row.taskNumber)
+    } else {
+      max = Math.max(max, parseTaskNumberFromKey(row.taskKey) ?? 0)
+    }
+  }
+  return max
+}
+
+async function allocateFriendlyTaskKey(ctx: { db: { query: (table: 'tasks') => any } }) {
+  const nextTaskNumber = (await getMaxTaskNumber(ctx)) + 1
+  return {
+    taskNumber: nextTaskNumber,
+    taskKey: formatTaskKey(nextTaskNumber),
+  }
+}
+
 async function queueTaskDoneNotification(
   ctx: { runMutation: (mutation: unknown, args: { taskId: Id<'tasks'>; agentName: string }) => Promise<unknown> },
   taskId: Id<'tasks'>,
@@ -532,6 +581,7 @@ export const createTask = mutation({
     await validateDependencies(ctx, '__new__', args.dependsOn?.map((id: any) => String(id)))
 
     const defaultStatus = args.assignedAgent ? 'ready' : 'planning'
+    const { taskNumber, taskKey } = await allocateFriendlyTaskKey(ctx)
     return await ctx.db.insert('tasks', {
       title: sanitizeText(args.title, 200),
       description: sanitizeOptionalText(args.description, 4000),
@@ -547,6 +597,8 @@ export const createTask = mutation({
       tags: args.tags,
       project: sanitizeOptionalText(args.project, 200),
       notes: sanitizeOptionalText(args.notes, 4000),
+      taskNumber,
+      taskKey,
       version: 0,
     })
   },
@@ -834,6 +886,7 @@ export const create = internalMutation({
     }
     
     const createdBy = args!.createdBy || 'api'
+    const { taskNumber, taskKey } = await allocateFriendlyTaskKey(ctx)
 
     const taskId = await ctx.db.insert('tasks', {
       title: args!.title,
@@ -844,6 +897,8 @@ export const create = internalMutation({
       createdBy,
       status: (args!.status || 'planning') as any,
       createdAt: Date.now(),
+      taskNumber,
+      taskKey,
     })
 
     await ctx.db.insert('activityLog', {
@@ -975,6 +1030,33 @@ export const remove = internalMutation({
     })
 
     return { success: true }
+  },
+})
+
+/** Backfill missing human-friendly task keys for historical rows. */
+export const backfillFriendlyTaskKeys = internalMutation({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const max = Math.max(1, Math.min(args.limit ?? 100, 1000))
+    const tasks = await queryTasksWithOptionalIndex(ctx as any, 5000, 'by_created_at')
+    let nextTaskNumber = await getMaxTaskNumber(ctx as any)
+
+    let updated = 0
+    for (const task of [...tasks].reverse()) {
+      if (updated >= max) break
+      if (task.taskKey && typeof task.taskNumber === 'number') continue
+
+      nextTaskNumber += 1
+      await ctx.db.patch(task._id, {
+        taskNumber: nextTaskNumber,
+        taskKey: formatTaskKey(nextTaskNumber),
+      })
+      updated += 1
+    }
+
+    return { updated }
   },
 })
 

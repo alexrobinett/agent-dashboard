@@ -58,6 +58,10 @@ export default defineSchema({
     result: v.optional(v.string()),
     blockedReason: v.optional(v.string()),
 
+    // Human-friendly task key (e.g. AD-123)
+    taskNumber: v.optional(v.number()),
+    taskKey: v.optional(v.string()),
+
     // Legacy fields retained for existing rows; no active code uses them.
     leaseOwner: v.optional(v.string()),
     leaseExpiresAt: v.optional(v.number()),
@@ -86,7 +90,9 @@ export default defineSchema({
     .index('by_priority', ['priority'])
     .index('by_status_and_agent', ['status', 'assignedAgent'])
     .index('by_parent', ['parentTask'])
-    .index('by_project', ['project']),
+    .index('by_project', ['project'])
+    .index('by_task_number', ['taskNumber'])
+    .index('by_task_key', ['taskKey']),
 
   // User preferences for dashboard customization
   userPreferences: defineTable({

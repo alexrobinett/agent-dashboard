@@ -200,6 +200,28 @@ describe('filterTasks', () => {
       const result = filterTasks(tasks, filters)
       expect(result).toHaveLength(0)
     })
+
+    it('matches by task key', () => {
+      const tasks = [
+        createMockTask({ title: 'A', taskKey: 'AD-42' }),
+        createMockTask({ title: 'B', taskKey: 'AD-99' }),
+      ]
+      const filters: FilterState = { ...EMPTY_FILTERS, search: 'ad-42' }
+      const result = filterTasks(tasks, filters)
+      expect(result).toHaveLength(1)
+      expect(result[0].taskKey).toBe('AD-42')
+    })
+
+    it('matches by convex id', () => {
+      const tasks = [
+        createMockTask({ _id: 'j57aaa111' as MockTask['_id'] }),
+        createMockTask({ _id: 'j57bbb222' as MockTask['_id'] }),
+      ]
+      const filters: FilterState = { ...EMPTY_FILTERS, search: 'bbb222' }
+      const result = filterTasks(tasks, filters)
+      expect(result).toHaveLength(1)
+      expect(result[0]._id).toBe('j57bbb222')
+    })
   })
 
   describe('combined filters (AND logic)', () => {

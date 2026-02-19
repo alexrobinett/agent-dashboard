@@ -10,6 +10,7 @@ interface TaskCardProps {
     priority?: string
     project?: string
     status?: string
+    taskKey?: string
   }
 }
 
@@ -46,6 +47,9 @@ export function TaskCard({ task }: TaskCardProps) {
           <GripVertical className="h-4 w-4" />
         </div>
         <div className="flex-1 min-w-0">
+          <div className="mb-1 flex items-center gap-2">
+            <span className="text-[11px] font-mono text-muted-foreground">{task.taskKey ?? task._id}</span>
+          </div>
           <h3 className="font-medium text-secondary-foreground text-sm mb-1 line-clamp-2">
             {task.title}
           </h3>

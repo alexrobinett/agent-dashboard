@@ -244,5 +244,31 @@ describe('useSearch', () => {
       expect(result.current.filteredTasks).toHaveLength(1)
       expect(result.current.filteredTasks[0].title).toBe('Fix bug (critical)')
     })
+
+    it('matches by friendly task key', () => {
+      const tasks = [
+        makeTask({ title: 'Task A', taskKey: 'AD-101' }),
+        makeTask({ title: 'Task B', taskKey: 'AD-202' }),
+      ]
+
+      const { result } = renderHook(() => useSearch(tasks, 'ad-202'))
+      act(() => { vi.advanceTimersByTime(300) })
+
+      expect(result.current.filteredTasks).toHaveLength(1)
+      expect((result.current.filteredTasks[0] as any).taskKey).toBe('AD-202')
+    })
+
+    it('matches by convex _id', () => {
+      const tasks = [
+        makeTask({ _id: 'j57abc123xyz' }),
+        makeTask({ _id: 'j57def456uvw' }),
+      ]
+
+      const { result } = renderHook(() => useSearch(tasks, 'j57def'))
+      act(() => { vi.advanceTimersByTime(300) })
+
+      expect(result.current.filteredTasks).toHaveLength(1)
+      expect((result.current.filteredTasks[0] as any)._id).toBe('j57def456uvw')
+    })
   })
 })

@@ -3,8 +3,10 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 const DEBOUNCE_MS = 300
 
 export interface SearchableTask {
+  _id?: string
   title?: string
   description?: string
+  taskKey?: string
   [key: string]: unknown
 }
 
@@ -41,7 +43,9 @@ export function useSearch<T extends SearchableTask>(tasks: T[], query: string) {
     return tasks.filter((task) => {
       const title = (task.title ?? '').toLowerCase()
       const description = (task.description ?? '').toLowerCase()
-      return title.includes(q) || description.includes(q)
+      const taskKey = (task.taskKey ?? '').toLowerCase()
+      const id = (task._id ?? '').toLowerCase()
+      return title.includes(q) || description.includes(q) || taskKey.includes(q) || id.includes(q)
     })
   }, [tasks, debouncedQuery])
 

@@ -41,6 +41,8 @@ export interface MockTask {
   tags?: string[]
   result?: string
   blockedReason?: string
+  taskNumber?: number
+  taskKey?: string
   leaseOwner?: string
   leaseExpiresAt?: number
   handoffCount?: number
@@ -92,6 +94,8 @@ export function createMockTask(overrides: Partial<MockTask> = {}): MockTask {
     tags: undefined,
     result: undefined,
     blockedReason: undefined,
+    taskNumber: undefined,
+    taskKey: undefined,
     leaseOwner: undefined,
     leaseExpiresAt: undefined,
     handoffCount: undefined,
