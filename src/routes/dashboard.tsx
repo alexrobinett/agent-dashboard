@@ -21,6 +21,7 @@ import {
 import { ShortcutHint } from '../components/ShortcutHint'
 import { KeyboardShortcutsOverlay } from '../components/KeyboardShortcutsOverlay'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts'
+import { CommandPalette, type CommandItem } from '../components/CommandPalette'
 import { getSession } from '../lib/auth-middleware'
 import { ErrorBoundary } from '../components/ErrorBoundary'
 import { EmptyState } from '../components/EmptyState'
@@ -210,6 +211,7 @@ export function DashboardBoard({
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [isNewTaskOpen, setIsNewTaskOpen] = useState(false)
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false)
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskDescription, setNewTaskDescription] = useState('')
   const [newTaskError, setNewTaskError] = useState<string | null>(null)
@@ -264,6 +266,153 @@ export function DashboardBoard({
 
   const { filteredTasks: searchResults } = useSearch(allTasks, filters.search)
 
+  const commandPaletteCommands = useMemo<CommandItem[]>(() => {
+    const baseCommands: CommandItem[] = [
+      {
+        id: 'go-board-navigation',
+        group: 'Navigation',
+        label: 'Go to board view',
+        subtitle: 'Switch to Kanban board',
+        keywords: ['board', 'kanban', 'navigation'],
+        shortcut: 'g b',
+        onSelect: () => setActiveView('board'),
+      },
+      {
+        id: 'go-workload-navigation',
+        group: 'Navigation',
+        label: 'Go to workload view',
+        subtitle: 'Switch to workload chart',
+        keywords: ['workload', 'chart', 'navigation'],
+        shortcut: 'g w',
+        onSelect: () => setActiveView('workload'),
+      },
+      {
+        id: 'focus-task-search',
+        group: 'Navigation',
+        label: 'Focus task search',
+        subtitle: 'Move cursor to search field',
+        keywords: ['search', 'filter', 'focus'],
+        shortcut: '/',
+        onSelect: () => searchInputRef.current?.focus(),
+      },
+      {
+        id: 'new-task',
+        group: 'Tasks',
+        label: 'Create new task',
+        subtitle: 'Open task creation panel',
+        keywords: ['task', 'create', 'new'],
+        shortcut: 'n',
+        onSelect: () => setIsNewTaskOpen(true),
+      },
+      {
+        id: 'clear-task-draft',
+        group: 'Tasks',
+        label: 'Clear new task draft',
+        subtitle: 'Reset title and description',
+        keywords: ['task', 'draft', 'reset', 'clear'],
+        enabled: Boolean(newTaskTitle.trim() || newTaskDescription.trim()),
+        onSelect: () => {
+          setNewTaskTitle('')
+          setNewTaskDescription('')
+          setNewTaskError(null)
+        },
+      },
+      {
+        id: 'view-board',
+        group: 'Views',
+        label: 'Board view',
+        subtitle: 'View tasks by status',
+        keywords: ['board', 'kanban', 'view'],
+        onSelect: () => setActiveView('board'),
+      },
+      {
+        id: 'view-workload',
+        group: 'Views',
+        label: 'Workload view',
+        subtitle: 'Inspect tasks by agent load',
+        keywords: ['workload', 'capacity', 'view'],
+        onSelect: () => setActiveView('workload'),
+      },
+      {
+        id: 'show-shortcuts',
+        group: 'Quick Actions',
+        label: 'Show keyboard shortcuts',
+        subtitle: 'Open shortcuts reference dialog',
+        keywords: ['shortcuts', 'help', 'keyboard'],
+        shortcut: '?',
+        onSelect: () => setIsShortcutsOpen(true),
+      },
+      {
+        id: 'clear-filters',
+        group: 'Quick Actions',
+        label: 'Clear all filters',
+        subtitle: 'Reset search, project, agent, and priority',
+        keywords: ['clear', 'filters', 'reset'],
+        enabled: hasActiveFilters,
+        onSelect: () => clearFilters(),
+      },
+      {
+        id: 'close-new-task-sheet',
+        group: 'Quick Actions',
+        label: 'Close new task panel',
+        subtitle: 'Dismiss task creation drawer',
+        keywords: ['close', 'sheet', 'new task', 'dismiss'],
+        enabled: isNewTaskOpen,
+        onSelect: () => setIsNewTaskOpen(false),
+      },
+    ]
+
+    if (agents.length === 0) {
+      baseCommands.push({
+        id: 'agents-empty',
+        group: 'Agents',
+        label: 'No agents available',
+        subtitle: 'Agent commands appear when tasks have assignees',
+        keywords: ['agent', 'empty'],
+        enabled: false,
+        onSelect: () => {},
+      })
+      return baseCommands
+    }
+
+    baseCommands.push({
+      id: 'agent-all',
+      group: 'Agents',
+      label: 'Show all agents',
+      subtitle: 'Clear agent filter',
+      keywords: ['agent', 'all', 'clear'],
+      enabled: Boolean(filters.agent),
+      onSelect: () => setFilter('agent', ''),
+    })
+
+    for (const agent of agents) {
+      baseCommands.push({
+        id: `agent-${agent.toLowerCase().replace(/\s+/g, '-')}`,
+        group: 'Agents',
+        label: `Filter by ${agent}`,
+        subtitle: 'Limit board to one assignee',
+        keywords: ['agent', 'filter', agent.toLowerCase()],
+        enabled: filters.agent !== agent,
+        onSelect: () => {
+          setFilter('agent', agent)
+          setActiveView('board')
+        },
+      })
+    }
+
+    return baseCommands
+  }, [
+    agents,
+    clearFilters,
+    filters.agent,
+    hasActiveFilters,
+    isNewTaskOpen,
+    newTaskDescription,
+    newTaskTitle,
+    setActiveView,
+    setFilter,
+  ])
+
   // Apply dropdown filters on top of search results, then re-group by status
   const filteredTasks = useMemo(() => {
     const result: Record<string, any[]> = {}
@@ -308,10 +457,12 @@ export function DashboardBoard({
   }, [filters.search, filters.project, filters.agent, filters.priority, activeView])
 
   useKeyboardShortcuts({
+    onToggleCommandPalette: () => setIsCommandPaletteOpen((prev) => !prev),
     onToggleShortcutsHelp: () => setIsShortcutsOpen((prev) => !prev),
     onOpenNewTask: () => setIsNewTaskOpen(true),
     onFocusSearch: () => searchInputRef.current?.focus(),
     onEscape: () => {
+      setIsCommandPaletteOpen(false)
       setIsNewTaskOpen(false)
       setIsShortcutsOpen(false)
     },
@@ -319,6 +470,7 @@ export function DashboardBoard({
     onNavigateUp: () => focusTaskCard(-1),
     onGoToBoard: () => setActiveView('board'),
     onGoToWorkload: () => setActiveView('workload'),
+    isCommandPaletteOpen,
   })
 
   // Check if all columns are empty after filtering
@@ -466,6 +618,11 @@ export function DashboardBoard({
       <KeyboardShortcutsOverlay
         open={isShortcutsOpen}
         onOpenChange={setIsShortcutsOpen}
+      />
+      <CommandPalette
+        open={isCommandPaletteOpen}
+        onOpenChange={setIsCommandPaletteOpen}
+        commands={commandPaletteCommands}
       />
 
       <Sheet open={isNewTaskOpen} onOpenChange={setIsNewTaskOpen}>

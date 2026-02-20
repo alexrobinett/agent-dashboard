@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 
 interface UseKeyboardShortcutsOptions {
+  onToggleCommandPalette?: () => void
   onToggleShortcutsHelp: () => void
   onOpenNewTask: () => void
   onFocusSearch: () => void
@@ -9,6 +10,7 @@ interface UseKeyboardShortcutsOptions {
   onNavigateUp: () => void
   onGoToBoard: () => void
   onGoToWorkload: () => void
+  isCommandPaletteOpen?: boolean
 }
 
 function isEditableElement(target: EventTarget | null): boolean {
@@ -23,6 +25,7 @@ function isEditableElement(target: EventTarget | null): boolean {
 }
 
 export function useKeyboardShortcuts({
+  onToggleCommandPalette,
   onToggleShortcutsHelp,
   onOpenNewTask,
   onFocusSearch,
@@ -31,6 +34,7 @@ export function useKeyboardShortcuts({
   onNavigateUp,
   onGoToBoard,
   onGoToWorkload,
+  isCommandPaletteOpen = false,
 }: UseKeyboardShortcutsOptions) {
   const pendingChordRef = useRef<string | null>(null)
   const chordTimeoutRef = useRef<number | null>(null)
@@ -53,10 +57,27 @@ export function useKeyboardShortcuts({
     }
 
     const onKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase()
+      const isCommandPaletteShortcut =
+        key === 'k' && (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey
+
+      if (isCommandPaletteShortcut) {
+        event.preventDefault()
+        onToggleCommandPalette?.()
+        return
+      }
+
+      if (isCommandPaletteOpen) {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          clearChord()
+          onEscape()
+        }
+        return
+      }
+
       if (event.metaKey || event.ctrlKey || event.altKey) return
       if (isEditableElement(event.target)) return
-
-      const key = event.key.toLowerCase()
 
       if (pendingChordRef.current === 'g') {
         if (key === 'b') {
@@ -129,9 +150,11 @@ export function useKeyboardShortcuts({
     onFocusSearch,
     onGoToBoard,
     onGoToWorkload,
+    isCommandPaletteOpen,
     onNavigateDown,
     onNavigateUp,
     onOpenNewTask,
+    onToggleCommandPalette,
     onToggleShortcutsHelp,
   ])
 }

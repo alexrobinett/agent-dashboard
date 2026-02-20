@@ -54,6 +54,7 @@ const recorded = {
   keyboardHandlers: undefined as Record<string, () => void> | undefined,
   sheetOpen: false,
   shortcutsOpen: false,
+  commandPaletteOpen: false,
 }
 
 vi.mock('@tanstack/react-router', async () => {
@@ -131,6 +132,13 @@ vi.mock('../../components/KeyboardShortcutsOverlay', () => ({
   },
 }))
 
+vi.mock('../../components/CommandPalette', () => ({
+  CommandPalette: ({ open }: { open: boolean }) => {
+    recorded.commandPaletteOpen = open
+    return <div data-testid="command-palette">{open ? 'open' : 'closed'}</div>
+  },
+}))
+
 vi.mock('../../components/EmptyState', () => ({
   EmptyState: ({ variant }: { variant: string }) => (
     <div data-testid={`empty-state-${variant}`}>empty-{variant}</div>
@@ -184,6 +192,7 @@ beforeEach(() => {
   recorded.keyboardHandlers = undefined
   recorded.sheetOpen = false
   recorded.shortcutsOpen = false
+  recorded.commandPaletteOpen = false
 })
 
 describe('DashboardBoard view toggles and board branches', () => {
