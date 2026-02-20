@@ -80,6 +80,7 @@ export const api = {
   tasks: {
     list: {} as any,
     getByStatus: {} as any,
+    getAgentPresence: {} as any,
     getWorkload: {} as any,
     listFiltered: {} as any,
     getById: {} as any,
@@ -88,6 +89,7 @@ export const api = {
     update: {} as any,
     updateTask: {} as any,
     claimTask: {} as any,
+    heartbeat: {} as any,
     completeTask: {} as any,
     deleteTask: {} as any,
   },

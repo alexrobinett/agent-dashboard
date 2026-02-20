@@ -244,6 +244,32 @@ export function aggregateWorkload(
 
 type QueryCtx = { db: { query: (table: 'tasks') => any } }
 type IndexSelector = (q: any) => any
+type ActivityQueryCtx = { db: { query: (table: 'activityLog') => any } }
+type PaginatedResult<T> = {
+  page: T[]
+  continueCursor: string
+  isDone: boolean
+}
+
+type PresenceTaskDoc = {
+  _id: Id<'tasks'>
+  taskKey?: string
+  title?: string
+  project?: string
+  status?: string
+  assignedAgent?: string
+  createdAt?: number
+  startedAt?: number
+  lastHeartbeatAt?: number
+  runId?: string
+  sessionKey?: string
+  costSoFarUsd?: number
+}
+
+type ActivityLogDoc = {
+  taskId?: Id<'tasks'> | string
+  timestamp?: number
+}
 
 /**
  * Test mocks in this repo expose query().order().take() without withIndex().
@@ -262,6 +288,74 @@ async function queryTasksWithOptionalIndex(
       ? maybeWithIndex.call(baseQuery, indexName, indexSelector).order('desc')
       : baseQuery.order('desc')
   return await orderedQuery.take(take)
+}
+
+async function collectAllFromOrderedQuery<T>(orderedQuery: any, pageSize = 256): Promise<T[]> {
+  const maybePaginate = (orderedQuery as {
+    paginate?: (options: { numItems: number; cursor: string | null }) => Promise<PaginatedResult<T>>
+  }).paginate
+  if (typeof maybePaginate === 'function') {
+    const rows: T[] = []
+    let cursor: string | null = null
+    let done = false
+    while (!done) {
+      const chunk: PaginatedResult<T> = await maybePaginate.call(orderedQuery, { numItems: pageSize, cursor })
+      rows.push(...chunk.page)
+      done = chunk.isDone
+      cursor = done ? null : chunk.continueCursor
+    }
+    return rows
+  }
+
+  const maybeTake = (orderedQuery as { take?: (count: number) => Promise<T[]> }).take
+  if (typeof maybeTake === 'function') {
+    return await maybeTake.call(orderedQuery, pageSize)
+  }
+  return []
+}
+
+async function queryAllTasksWithOptionalIndex<T = any>(
+  ctx: QueryCtx,
+  indexName?: string,
+  indexSelector?: IndexSelector,
+  pageSize = 256,
+): Promise<T[]> {
+  const baseQuery = ctx.db.query('tasks')
+  const maybeWithIndex = (baseQuery as { withIndex?: (name: string, fn?: IndexSelector) => any }).withIndex
+  const orderedQuery =
+    indexName && typeof maybeWithIndex === 'function'
+      ? maybeWithIndex.call(baseQuery, indexName, indexSelector).order('desc')
+      : baseQuery.order('desc')
+  return await collectAllFromOrderedQuery<T>(orderedQuery, pageSize)
+}
+
+async function queryAllActivityWithOptionalIndex<T = any>(
+  ctx: ActivityQueryCtx,
+  indexName?: string,
+  indexSelector?: IndexSelector,
+  pageSize = 256,
+): Promise<T[]> {
+  const baseQuery = ctx.db.query('activityLog')
+  const maybeWithIndex = (baseQuery as { withIndex?: (name: string, fn?: IndexSelector) => any }).withIndex
+  const orderedQuery =
+    indexName && typeof maybeWithIndex === 'function'
+      ? maybeWithIndex.call(baseQuery, indexName, indexSelector).order('desc')
+      : baseQuery.order('desc')
+  return await collectAllFromOrderedQuery<T>(orderedQuery, pageSize)
+}
+
+type PresenceRank = {
+  lastSeen: number
+  startedAt: number
+  createdAt: number
+  taskId: string
+}
+
+function comparePresenceRank(a: PresenceRank, b: PresenceRank): number {
+  if (a.lastSeen !== b.lastSeen) return a.lastSeen - b.lastSeen
+  if (a.startedAt !== b.startedAt) return a.startedAt - b.startedAt
+  if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt
+  return a.taskId.localeCompare(b.taskId)
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -468,9 +562,156 @@ export const getBoard = query({
   },
 })
 
+/**
+ * API shape for S7.4 live agent presence:
+ * - `activeTask`: current non-terminal task selected per agent (most recently seen)
+ * - `status`: active task status
+ * - `lastSeen`: ms epoch derived from heartbeat first, then activity/task timestamps
+ * - `elapsedRuntimeMs`: wall runtime since `startedAt` when available
+ * - `costSoFarUsd`: optional running cost snapshot, only present when agent reports it
+ */
+export const getAgentPresence = query({
+  args: {
+    agent: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = typeof args?.limit === 'number' ? args.limit : 50
+    const max = Math.max(1, Math.min(limit, 200))
+    const requestedAgent = typeof args?.agent === 'string' ? args.agent : undefined
+    const now = Date.now()
+
+    const tasks: PresenceTaskDoc[] = requestedAgent
+      ? await queryAllTasksWithOptionalIndex<PresenceTaskDoc>(
+        ctx,
+        'by_agent',
+        (q) => q.eq('assignedAgent', requestedAgent),
+      )
+      : await queryAllTasksWithOptionalIndex<PresenceTaskDoc>(ctx, 'by_created_at')
+    const activeTasks = tasks.filter((task) => {
+      const assignedAgent = task.assignedAgent
+      if (!assignedAgent) return false
+      if (requestedAgent && assignedAgent !== requestedAgent) return false
+      return task.status !== 'done' && task.status !== 'cancelled'
+    })
+    if (activeTasks.length === 0) return []
+
+    const candidateTaskIds = new Set(activeTasks.map(task => String(task._id)))
+    const recentActivity = await queryAllActivityWithOptionalIndex<ActivityLogDoc>(ctx, 'by_timestamp')
+    const activityLastSeenByTask = new Map<string, number>()
+    for (const entry of recentActivity) {
+      const taskId = String(entry.taskId)
+      if (!candidateTaskIds.has(taskId)) continue
+      if (typeof entry.timestamp !== 'number') continue
+      const previous = activityLastSeenByTask.get(taskId) ?? 0
+      if (entry.timestamp > previous) {
+        activityLastSeenByTask.set(taskId, entry.timestamp)
+      }
+    }
+
+    const chosenByAgent = new Map<string, { task: typeof activeTasks[number]; rank: PresenceRank }>()
+    for (const task of activeTasks) {
+      const taskId = String(task._id)
+      const heartbeatOrActivity = Math.max(
+        task.lastHeartbeatAt ?? 0,
+        activityLastSeenByTask.get(taskId) ?? 0,
+      )
+      const derivedLastSeen = heartbeatOrActivity > 0
+        ? heartbeatOrActivity
+        : Math.max(task.startedAt ?? 0, task.createdAt ?? 0)
+
+      const rank: PresenceRank = {
+        lastSeen: derivedLastSeen,
+        startedAt: task.startedAt ?? 0,
+        createdAt: task.createdAt ?? 0,
+        taskId,
+      }
+      const agentName = task.assignedAgent as string
+      const previous = chosenByAgent.get(agentName)
+      if (!previous || comparePresenceRank(rank, previous.rank) > 0) {
+        chosenByAgent.set(agentName, { task, rank })
+      }
+    }
+
+    return [...chosenByAgent.entries()]
+      .map(([agentName, selected]) => {
+        const { task, rank } = selected
+        return {
+          agent: agentName,
+          activeTask: {
+            taskId: task._id,
+            taskKey: task.taskKey,
+            title: task.title,
+            project: task.project,
+          },
+          status: task.status,
+          runId: task.runId,
+          sessionKey: task.sessionKey,
+          lastSeen: rank.lastSeen,
+          elapsedRuntimeMs: task.startedAt ? Math.max(0, now - task.startedAt) : null,
+          costSoFarUsd: task.costSoFarUsd,
+        }
+      })
+      .sort((a, b) => {
+        if (b.lastSeen !== a.lastSeen) return b.lastSeen - a.lastSeen
+        const agentOrder = a.agent.localeCompare(b.agent)
+        if (agentOrder !== 0) return agentOrder
+        return String(a.activeTask.taskId).localeCompare(String(b.activeTask.taskId))
+      })
+      .slice(0, max)
+  },
+})
+
 // ═══════════════════════════════════════════════════════════
 // MUTATIONS — Agent Workflow (from clawd)
 // ═══════════════════════════════════════════════════════════
+
+/**
+ * Lightweight heartbeat contract for live presence.
+ * Agents can call this periodically while a task is active to refresh `lastSeen`
+ * and optionally update run/session identity plus running cost snapshots.
+ */
+export const heartbeat = mutation({
+  args: {
+    taskId: v.id('tasks'),
+    actor: v.string(),
+    runId: v.optional(v.string()),
+    sessionKey: v.optional(v.string()),
+    costSoFarUsd: v.optional(v.number()),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, _args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
+
+    const { taskId, actor, runId, sessionKey, costSoFarUsd, note } = _args as any
+    const task = await ctx.db.get(taskId as Id<'tasks'>)
+    if (!task) throw new Error('Task not found')
+
+    const now = Date.now()
+    const patch: Record<string, unknown> = {
+      lastHeartbeatAt: now,
+      version: (task.version || 0) + 1,
+    }
+    if (runId !== undefined) patch.runId = runId
+    if (sessionKey !== undefined) patch.sessionKey = sessionKey
+    if (costSoFarUsd !== undefined) patch.costSoFarUsd = Math.max(0, costSoFarUsd)
+    if (note !== undefined) {
+      const timestamp = new Date(now).toISOString()
+      const existingNotes = task.notes || ''
+      const heartbeatLog = `[${timestamp}] ${actor}: heartbeat${note ? ` — ${note}` : ''}`
+      patch.notes = sanitizeText(existingNotes ? `${existingNotes}\n${heartbeatLog}` : heartbeatLog, 4000)
+    }
+
+    await ctx.db.patch(taskId, patch)
+    return {
+      ok: true,
+      lastSeen: now,
+      version: patch.version,
+    }
+  },
+})
 
 /** Primary API for status updates from OpenClaw agents */
 export const pushStatus = mutation({
