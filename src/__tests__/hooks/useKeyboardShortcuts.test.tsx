@@ -54,6 +54,8 @@ describe('useKeyboardShortcuts', () => {
 
     fireEvent.keyDown(window, { key: '?' })
     expect(screen.getByTestId('keyboard-shortcuts-overlay')).toBeDefined()
+    expect(screen.getByText('Toggle command palette')).toBeDefined()
+    expect(screen.getByText(/cmd\/ctrl \+ k/i)).toBeDefined()
 
     fireEvent.keyDown(window, { key: '?' })
     expect(screen.queryByTestId('keyboard-shortcuts-overlay')).toBeNull()

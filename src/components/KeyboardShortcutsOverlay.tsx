@@ -19,6 +19,7 @@ const SHORTCUT_GROUPS = [
   {
     title: 'Actions',
     items: [
+      { keys: 'cmd/ctrl + k', description: 'Toggle command palette' },
       { keys: 'n', description: 'Open new task drawer' },
       { keys: '/', description: 'Focus search input' },
       { keys: 'esc', description: 'Close modal or drawer' },

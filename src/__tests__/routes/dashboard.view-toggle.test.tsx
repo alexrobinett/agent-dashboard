@@ -55,6 +55,7 @@ const recorded = {
   sheetOpen: false,
   shortcutsOpen: false,
   commandPaletteOpen: false,
+  commandPaletteCommands: [] as Array<{ id: string; label: string; shortcut?: string }>,
 }
 
 vi.mock('@tanstack/react-router', async () => {
@@ -133,8 +134,15 @@ vi.mock('../../components/KeyboardShortcutsOverlay', () => ({
 }))
 
 vi.mock('../../components/CommandPalette', () => ({
-  CommandPalette: ({ open }: { open: boolean }) => {
+  CommandPalette: ({
+    open,
+    commands,
+  }: {
+    open: boolean
+    commands: Array<{ id: string; label: string; shortcut?: string }>
+  }) => {
     recorded.commandPaletteOpen = open
+    recorded.commandPaletteCommands = commands
     return <div data-testid="command-palette">{open ? 'open' : 'closed'}</div>
   },
 }))
@@ -193,6 +201,7 @@ beforeEach(() => {
   recorded.sheetOpen = false
   recorded.shortcutsOpen = false
   recorded.commandPaletteOpen = false
+  recorded.commandPaletteCommands = []
 })
 
 describe('DashboardBoard view toggles and board branches', () => {
@@ -293,6 +302,22 @@ describe('DashboardBoard view toggles and board branches', () => {
       recorded.keyboardHandlers?.onOpenNewTask()
     })
     expect(recorded.sheetOpen).toBe(true)
+
+    expect(recorded.commandPaletteOpen).toBe(false)
+    act(() => {
+      recorded.keyboardHandlers?.onToggleCommandPalette()
+    })
+    expect(recorded.commandPaletteOpen).toBe(true)
+
+    act(() => {
+      recorded.keyboardHandlers?.onEscape()
+    })
+    expect(recorded.commandPaletteOpen).toBe(false)
+    expect(
+      recorded.commandPaletteCommands.some(
+        (command) => command.id === 'show-shortcuts' && command.shortcut === '?',
+      ),
+    ).toBe(true)
   })
 
   it('supports keyboard card focus navigation and no-card guard', () => {

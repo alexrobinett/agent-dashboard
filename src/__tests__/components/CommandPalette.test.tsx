@@ -47,6 +47,19 @@ function renderPalette(overrides?: Partial<{ open: boolean; commands: CommandIte
 }
 
 describe('CommandPalette', () => {
+  it('wires combobox and listbox aria attributes with active descendant', () => {
+    renderPalette()
+
+    const input = screen.getByTestId('command-palette-input')
+    const listbox = screen.getByRole('listbox', { name: 'Command results' })
+    const selectedOption = screen.getByRole('option', { selected: true })
+
+    expect(input).toHaveAttribute('role', 'combobox')
+    expect(input).toHaveAttribute('aria-controls', listbox.id)
+    expect(input).toHaveAttribute('aria-expanded', 'true')
+    expect(input).toHaveAttribute('aria-activedescendant', selectedOption.id)
+  })
+
   it('opens and closes with escape', () => {
     const { onOpenChange } = renderPalette()
     expect(screen.getByTestId('command-palette')).toBeInTheDocument()
@@ -81,8 +94,15 @@ describe('CommandPalette', () => {
   it('arrow navigation changes highlighted row before selection', () => {
     const { onSelect } = renderPalette()
     const input = screen.getByTestId('command-palette-input')
+    const firstSelectedOption = screen.getByRole('option', { selected: true })
+
+    expect(input).toHaveAttribute('aria-activedescendant', firstSelectedOption.id)
 
     fireEvent.keyDown(input, { key: 'ArrowDown' })
+    const nextSelectedOption = screen.getByRole('option', { selected: true })
+    expect(nextSelectedOption.id).not.toBe(firstSelectedOption.id)
+    expect(input).toHaveAttribute('aria-activedescendant', nextSelectedOption.id)
+
     fireEvent.keyDown(input, { key: 'Enter' })
 
     expect(onSelect).toHaveBeenCalledTimes(1)
