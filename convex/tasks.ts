@@ -245,6 +245,11 @@ export function aggregateWorkload(
 type QueryCtx = { db: { query: (table: 'tasks') => any } }
 type IndexSelector = (q: any) => any
 type ActivityQueryCtx = { db: { query: (table: 'activityLog') => any } }
+type PaginatedResult<T> = {
+  page: T[]
+  continueCursor: string
+  isDone: boolean
+}
 
 /**
  * Test mocks in this repo expose query().order().take() without withIndex().
@@ -265,11 +270,49 @@ async function queryTasksWithOptionalIndex(
   return await orderedQuery.take(take)
 }
 
-async function queryActivityWithOptionalIndex(
-  ctx: ActivityQueryCtx,
-  take: number,
+async function collectAllFromOrderedQuery<T>(orderedQuery: any, pageSize = 256): Promise<T[]> {
+  const maybePaginate = (orderedQuery as {
+    paginate?: (options: { numItems: number; cursor: string | null }) => Promise<PaginatedResult<T>>
+  }).paginate
+  if (typeof maybePaginate === 'function') {
+    const rows: T[] = []
+    let cursor: string | null = null
+    do {
+      const chunk = await maybePaginate.call(orderedQuery, { numItems: pageSize, cursor })
+      rows.push(...chunk.page)
+      if (chunk.isDone) break
+      cursor = chunk.continueCursor
+    } while (true)
+    return rows
+  }
+
+  const maybeTake = (orderedQuery as { take?: (count: number) => Promise<T[]> }).take
+  if (typeof maybeTake === 'function') {
+    return await maybeTake.call(orderedQuery, pageSize)
+  }
+  return []
+}
+
+async function queryAllTasksWithOptionalIndex(
+  ctx: QueryCtx,
   indexName?: string,
   indexSelector?: IndexSelector,
+  pageSize = 256,
+) {
+  const baseQuery = ctx.db.query('tasks')
+  const maybeWithIndex = (baseQuery as { withIndex?: (name: string, fn?: IndexSelector) => any }).withIndex
+  const orderedQuery =
+    indexName && typeof maybeWithIndex === 'function'
+      ? maybeWithIndex.call(baseQuery, indexName, indexSelector).order('desc')
+      : baseQuery.order('desc')
+  return await collectAllFromOrderedQuery(orderedQuery, pageSize)
+}
+
+async function queryAllActivityWithOptionalIndex(
+  ctx: ActivityQueryCtx,
+  indexName?: string,
+  indexSelector?: IndexSelector,
+  pageSize = 256,
 ) {
   const baseQuery = ctx.db.query('activityLog')
   const maybeWithIndex = (baseQuery as { withIndex?: (name: string, fn?: IndexSelector) => any }).withIndex
@@ -277,7 +320,21 @@ async function queryActivityWithOptionalIndex(
     indexName && typeof maybeWithIndex === 'function'
       ? maybeWithIndex.call(baseQuery, indexName, indexSelector).order('desc')
       : baseQuery.order('desc')
-  return await orderedQuery.take(take)
+  return await collectAllFromOrderedQuery(orderedQuery, pageSize)
+}
+
+type PresenceRank = {
+  lastSeen: number
+  startedAt: number
+  createdAt: number
+  taskId: string
+}
+
+function comparePresenceRank(a: PresenceRank, b: PresenceRank): number {
+  if (a.lastSeen !== b.lastSeen) return a.lastSeen - b.lastSeen
+  if (a.startedAt !== b.startedAt) return a.startedAt - b.startedAt
+  if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt
+  return a.taskId.localeCompare(b.taskId)
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -502,7 +559,13 @@ export const getAgentPresence = query({
     const requestedAgent = args?.agent
     const now = Date.now()
 
-    const tasks = await queryTasksWithOptionalIndex(ctx, 1000, 'by_created_at')
+    const tasks = requestedAgent
+      ? await queryAllTasksWithOptionalIndex(
+        ctx,
+        'by_agent',
+        (q) => q.eq('assignedAgent', requestedAgent),
+      )
+      : await queryAllTasksWithOptionalIndex(ctx, 'by_created_at')
     const activeTasks = tasks.filter((task) => {
       const assignedAgent = task.assignedAgent
       if (!assignedAgent) return false
@@ -512,11 +575,7 @@ export const getAgentPresence = query({
     if (activeTasks.length === 0) return []
 
     const candidateTaskIds = new Set(activeTasks.map(task => String(task._id)))
-    const recentActivity = await queryActivityWithOptionalIndex(
-      ctx,
-      Math.max(200, max * 20),
-      'by_timestamp',
-    )
+    const recentActivity = await queryAllActivityWithOptionalIndex(ctx, 'by_timestamp')
     const activityLastSeenByTask = new Map<string, number>()
     for (const entry of recentActivity) {
       const taskId = String(entry.taskId)
@@ -528,33 +587,30 @@ export const getAgentPresence = query({
       }
     }
 
-    const chosenByAgent = new Map<string, typeof activeTasks[number]>()
-    const rankByAgent = new Map<string, number>()
+    const chosenByAgent = new Map<string, { task: typeof activeTasks[number]; rank: PresenceRank }>()
     for (const task of activeTasks) {
       const taskId = String(task._id)
-      const lastSeen = Math.max(
-        task.lastHeartbeatAt ?? 0,
-        activityLastSeenByTask.get(taskId) ?? 0,
-        task.startedAt ?? 0,
-        task.createdAt ?? 0,
-      )
-      const agentName = task.assignedAgent as string
-      const previousRank = rankByAgent.get(agentName) ?? -1
-      if (lastSeen > previousRank) {
-        rankByAgent.set(agentName, lastSeen)
-        chosenByAgent.set(agentName, task)
-      }
-    }
-
-    return [...chosenByAgent.entries()]
-      .map(([agentName, task]) => {
-        const taskId = String(task._id)
-        const lastSeen = Math.max(
+      const rank: PresenceRank = {
+        lastSeen: Math.max(
           task.lastHeartbeatAt ?? 0,
           activityLastSeenByTask.get(taskId) ?? 0,
           task.startedAt ?? 0,
           task.createdAt ?? 0,
-        )
+        ),
+        startedAt: task.startedAt ?? 0,
+        createdAt: task.createdAt ?? 0,
+        taskId,
+      }
+      const agentName = task.assignedAgent as string
+      const previous = chosenByAgent.get(agentName)
+      if (!previous || comparePresenceRank(rank, previous.rank) > 0) {
+        chosenByAgent.set(agentName, { task, rank })
+      }
+    }
+
+    return [...chosenByAgent.entries()]
+      .map(([agentName, selected]) => {
+        const { task, rank } = selected
         return {
           agent: agentName,
           activeTask: {
@@ -566,12 +622,17 @@ export const getAgentPresence = query({
           status: task.status,
           runId: task.runId,
           sessionKey: task.sessionKey,
-          lastSeen,
+          lastSeen: rank.lastSeen,
           elapsedRuntimeMs: task.startedAt ? Math.max(0, now - task.startedAt) : null,
           costSoFarUsd: task.costSoFarUsd,
         }
       })
-      .sort((a, b) => b.lastSeen - a.lastSeen)
+      .sort((a, b) => {
+        if (b.lastSeen !== a.lastSeen) return b.lastSeen - a.lastSeen
+        const agentOrder = a.agent.localeCompare(b.agent)
+        if (agentOrder !== 0) return agentOrder
+        return String(a.activeTask.taskId).localeCompare(String(b.activeTask.taskId))
+      })
       .slice(0, max)
   },
 })

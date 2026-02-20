@@ -83,6 +83,23 @@ function mockCtx(tasks: Task[], activityLog: Array<Record<string, unknown>> = []
         const makeChain = (filtered: any[]) => ({
           order: (_dir: string) => ({
             take: async (n: number) => filtered.slice(0, n),
+            paginate: async ({
+              numItems,
+              cursor,
+            }: {
+              numItems: number
+              cursor: string | null
+            }) => {
+              const offset = cursor ? Number.parseInt(cursor, 10) : 0
+              const next = Number.isFinite(offset) ? offset : 0
+              const page = filtered.slice(next, next + numItems)
+              const continueCursor = String(next + page.length)
+              return {
+                page,
+                continueCursor,
+                isDone: next + page.length >= filtered.length,
+              }
+            },
           }),
           withIndex: (_indexName: string, _indexFn?: (q: any) => any) => {
             // For index queries, apply simple filtering based on index name
@@ -493,6 +510,90 @@ describe('getAgentPresence query handler', () => {
     expect(result).toHaveLength(1)
     expect(result[0].agent).toBe('forge')
     expect(result[0].activeTask.taskId).toBe('q3')
+  })
+
+  it('should include active tasks beyond legacy fixed windows', async () => {
+    const now = Date.now()
+    const tasks = Array.from({ length: 1000 }, (_, i) =>
+      makeTask({
+        _id: `done-${i}` as TaskId,
+        assignedAgent: `agent-${i}`,
+        status: 'done',
+        createdAt: now - i,
+      } as any),
+    )
+    tasks.push(makeTask({
+      _id: 'active-deep' as TaskId,
+      assignedAgent: 'sentinel',
+      status: 'in_progress',
+      createdAt: now - 200_000,
+      startedAt: now - 10_000,
+      lastHeartbeatAt: now - 1_500,
+    } as any))
+
+    const ctx = mockCtx(tasks)
+    const result = await getAgentPresenceHandler(ctx, {})
+
+    expect(result.some((row: any) => row.agent === 'sentinel')).toBe(true)
+    const sentinel = result.find((row: any) => row.agent === 'sentinel')
+    expect(sentinel.activeTask.taskId).toBe('active-deep')
+    expect(sentinel.lastSeen).toBe(now - 1_500)
+  })
+
+  it('should include lastSeen from activity outside legacy activity windows', async () => {
+    const now = Date.now()
+    const tasks = [
+      makeTask({
+        _id: 'target-task' as TaskId,
+        assignedAgent: 'forge',
+        status: 'in_progress',
+        createdAt: now - 40_000,
+        startedAt: now - 35_000,
+        lastHeartbeatAt: now - 30_000,
+      } as any),
+    ]
+    const logs = Array.from({ length: 1200 }, (_, i) => ({
+      taskId: `other-${i}`,
+      timestamp: now - i,
+    }))
+    logs.push({
+      taskId: 'target-task',
+      timestamp: now - 2_000,
+    })
+
+    const ctx = mockCtx(tasks, logs as Array<Record<string, unknown>>)
+    const result = await getAgentPresenceHandler(ctx, {})
+
+    expect(result).toHaveLength(1)
+    expect(result[0].agent).toBe('forge')
+    expect(result[0].activeTask.taskId).toBe('target-task')
+    expect(result[0].lastSeen).toBe(now - 2_000)
+  })
+
+  it('should deterministically choose one task when agent candidates tie on rank fields', async () => {
+    const now = Date.now()
+    const tasks = [
+      makeTask({
+        _id: 'task-a' as TaskId,
+        assignedAgent: 'forge',
+        status: 'in_progress',
+        createdAt: now - 20_000,
+        startedAt: now - 10_000,
+      } as any),
+      makeTask({
+        _id: 'task-z' as TaskId,
+        assignedAgent: 'forge',
+        status: 'in_progress',
+        createdAt: now - 20_000,
+        startedAt: now - 10_000,
+      } as any),
+    ]
+
+    const ctx = mockCtx(tasks)
+    const result = await getAgentPresenceHandler(ctx, { agent: 'forge' })
+
+    expect(result).toHaveLength(1)
+    expect(result[0].activeTask.taskId).toBe('task-z')
   })
 })
 
