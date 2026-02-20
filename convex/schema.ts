@@ -69,6 +69,7 @@ export default defineSchema({
     version: v.optional(v.number()),
     attemptCount: v.optional(v.number()),
     lastHeartbeatAt: v.optional(v.number()),
+    costSoFarUsd: v.optional(v.number()),
 
     // Handoff payload (agent→agent context)
     handoffPayload: v.optional(
