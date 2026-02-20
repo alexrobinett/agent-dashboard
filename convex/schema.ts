@@ -149,6 +149,24 @@ export default defineSchema({
     .index('by_task', ['taskId'])
     .index('by_timestamp', ['timestamp']),
 
+  // Token/cost telemetry emitted by agent runs.
+  costTelemetry: defineTable({
+    taskId: v.id('tasks'),
+    agent: v.string(),
+    model: v.string(),
+    inputTokens: v.number(),
+    outputTokens: v.number(),
+    estimatedCostUsd: v.number(),
+    timestamp: v.number(),
+    runId: v.optional(v.string()),
+    sessionKey: v.optional(v.string()),
+  })
+    .index('by_task', ['taskId'])
+    .index('by_timestamp', ['timestamp'])
+    .index('by_task_and_timestamp', ['taskId', 'timestamp'])
+    .index('by_run_id', ['runId'])
+    .index('by_session_key', ['sessionKey']),
+
   // Push tokens for iOS push notifications
   pushTokens: defineTable({
     userId: v.string(),
