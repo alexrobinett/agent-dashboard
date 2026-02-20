@@ -97,11 +97,11 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay
-          className="fixed inset-0 z-50 bg-background/80 backdrop-blur-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+          className="fixed inset-0 z-50 bg-[var(--overlay-backdrop)] backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
         />
         <Dialog.Content
           data-testid="command-palette"
-          className="fixed left-1/2 top-[18vh] z-50 w-[min(94vw,44rem)] -translate-x-1/2 rounded-xl border border-border bg-popover/95 text-popover-foreground shadow-2xl outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+          className="fixed left-1/2 top-[18vh] z-50 w-[min(94vw,44rem)] -translate-x-1/2 rounded-xl border border-[color:var(--overlay-border)] bg-[color:var(--overlay-surface)] text-popover-foreground shadow-[var(--overlay-shadow)] outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
           <Dialog.Description className="sr-only">

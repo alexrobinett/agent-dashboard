@@ -58,6 +58,12 @@
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
     --radius: 0.5rem;
+    --overlay-backdrop: rgba(15, 23, 42, 0.42);
+    --overlay-surface: hsl(0 0% 100%);
+    --overlay-border: hsl(0 0% 83%);
+    --overlay-shadow:
+      0 24px 56px -28px rgba(15, 23, 42, 0.45),
+      0 16px 32px -24px rgba(15, 23, 42, 0.35);
   }
 
   .dark {
@@ -86,6 +92,12 @@
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
+    --overlay-backdrop: rgba(2, 6, 23, 0.72);
+    --overlay-surface: hsl(240 4% 12%);
+    --overlay-border: hsl(240 5% 24%);
+    --overlay-shadow:
+      0 36px 80px -36px rgba(0, 0, 0, 0.95),
+      0 20px 40px -28px rgba(15, 23, 42, 0.75);
   }
 }
 
