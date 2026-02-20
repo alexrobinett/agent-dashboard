@@ -4,11 +4,17 @@ import userEvent from '@testing-library/user-event'
 import { DashboardBoard } from '../../routes/dashboard'
 
 const mockCreateTask = vi.fn()
+const mockClaimTask = vi.fn()
+const mockCompleteTask = vi.fn()
+const mockUpdateTask = vi.fn()
 
 vi.mock('../../../convex/_generated/api', () => ({
   api: {
     tasks: {
       createTask: 'tasks:createTask',
+      claimTask: 'tasks:claimTask',
+      completeTask: 'tasks:completeTask',
+      updateTask: 'tasks:updateTask',
     },
   },
 }))
@@ -16,6 +22,9 @@ vi.mock('../../../convex/_generated/api', () => ({
 vi.mock('convex/react', () => ({
   useMutation: (ref: string) => {
     if (ref === 'tasks:createTask') return mockCreateTask
+    if (ref === 'tasks:claimTask') return mockClaimTask
+    if (ref === 'tasks:completeTask') return mockCompleteTask
+    if (ref === 'tasks:updateTask') return mockUpdateTask
     return vi.fn()
   },
   ConvexReactClient: class {
@@ -187,6 +196,9 @@ function renderBoard(overrides?: { tasks?: any; activeView?: 'board' | 'workload
 beforeEach(() => {
   vi.clearAllMocks()
   mockCreateTask.mockResolvedValue('ok')
+  mockClaimTask.mockResolvedValue('ok')
+  mockCompleteTask.mockResolvedValue('ok')
+  mockUpdateTask.mockResolvedValue('ok')
   mockToastSuccess.mockReset()
   mockToastError.mockReset()
   mockFilters = { search: '', project: '', agent: '', priority: '' }
@@ -317,6 +329,12 @@ describe('DashboardBoard view toggles and board branches', () => {
       recorded.commandPaletteCommands.some(
         (command) => command.id === 'show-shortcuts' && command.shortcut === '?',
       ),
+    ).toBe(true)
+    expect(
+      recorded.commandPaletteCommands.some((command) => command.id.startsWith('task-complete-')),
+    ).toBe(true)
+    expect(
+      recorded.commandPaletteCommands.some((command) => command.id.startsWith('task-block-')),
     ).toBe(true)
   })
 

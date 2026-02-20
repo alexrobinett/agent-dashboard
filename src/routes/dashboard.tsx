@@ -218,6 +218,9 @@ export function DashboardBoard({
   const [isCreatingTask, setIsCreatingTask] = useState(false)
   const focusedTaskIndexRef = useRef<number>(-1)
   const createTask = useMutation(api.tasks.createTask)
+  const claimTask = useMutation(api.tasks.claimTask)
+  const completeTask = useMutation(api.tasks.completeTask)
+  const updateTask = useMutation(api.tasks.updateTask)
 
   const setActiveView = useCallback(
     (view: DashboardView) => {
@@ -235,6 +238,19 @@ export function DashboardBoard({
       setActiveView('board')
     },
     [setActiveView, setFilter],
+  )
+
+  const runPaletteTaskAction = useCallback(
+    async (actionLabel: string, fn: () => Promise<unknown>, successMessage: string) => {
+      try {
+        await fn()
+        toast.success(successMessage)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        toast.error(`Failed to ${actionLabel.toLowerCase()}`, { description: message })
+      }
+    },
+    [],
   )
 
   // Collect unique projects and agents from all tasks for dropdown options
@@ -362,6 +378,68 @@ export function DashboardBoard({
       },
     ]
 
+    const actionableTasks = searchResults.slice(0, 8)
+    for (const task of actionableTasks) {
+      const taskTitle = task.title?.trim() || task.taskKey || 'Untitled task'
+      const taskKeywords = [
+        'task',
+        taskTitle.toLowerCase(),
+        (task.taskKey ?? '').toLowerCase(),
+        (task.status ?? '').toLowerCase(),
+      ]
+
+      if (!task.assignedAgent && task.status !== 'done') {
+        baseCommands.push({
+          id: `task-claim-${task._id}`,
+          group: 'Tasks',
+          label: `Claim: ${taskTitle}`,
+          subtitle: 'Assign to you and move to in progress',
+          keywords: [...taskKeywords, 'claim', 'assign', 'in progress'],
+          onSelect: () => {
+            void runPaletteTaskAction(
+              'claim task',
+              () => claimTask({ taskId: task._id as any, agent: 'user' }),
+              `Claimed “${taskTitle}”`,
+            )
+          },
+        })
+      }
+
+      if (task.status !== 'done' && task.status !== 'cancelled') {
+        baseCommands.push({
+          id: `task-complete-${task._id}`,
+          group: 'Tasks',
+          label: `Complete: ${taskTitle}`,
+          subtitle: 'Mark task as done',
+          keywords: [...taskKeywords, 'complete', 'done', 'finish'],
+          onSelect: () => {
+            void runPaletteTaskAction(
+              'complete task',
+              () => completeTask({ taskId: task._id as any, result: 'Completed' }),
+              `Completed “${taskTitle}”`,
+            )
+          },
+        })
+      }
+
+      if (task.status !== 'blocked' && task.status !== 'done') {
+        baseCommands.push({
+          id: `task-block-${task._id}`,
+          group: 'Tasks',
+          label: `Block: ${taskTitle}`,
+          subtitle: 'Move task to blocked status',
+          keywords: [...taskKeywords, 'block', 'blocked'],
+          onSelect: () => {
+            void runPaletteTaskAction(
+              'block task',
+              () => updateTask({ taskId: task._id as any, status: 'blocked' }),
+              `Blocked “${taskTitle}”`,
+            )
+          },
+        })
+      }
+    }
+
     if (agents.length === 0) {
       baseCommands.push({
         id: 'agents-empty',
@@ -403,14 +481,19 @@ export function DashboardBoard({
     return baseCommands
   }, [
     agents,
+    claimTask,
     clearFilters,
+    completeTask,
     filters.agent,
     hasActiveFilters,
     isNewTaskOpen,
     newTaskDescription,
     newTaskTitle,
+    runPaletteTaskAction,
+    searchResults,
     setActiveView,
     setFilter,
+    updateTask,
   ])
 
   // Apply dropdown filters on top of search results, then re-group by status
