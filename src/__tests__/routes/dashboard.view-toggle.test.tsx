@@ -200,6 +200,7 @@ function renderBoard(overrides?: { tasks?: any; activeView?: 'board' | 'workload
       tasks={overrides?.tasks ?? defaultTasks}
       workload={{ forge: { total: 1, byStatus: {}, byPriority: {} } as any }}
       activityEntries={[]}
+      agentPresence={[]}
       activeView={overrides?.activeView ?? 'board'}
     />,
   )
@@ -379,6 +380,7 @@ describe('DashboardBoard view toggles and board branches', () => {
         tasks={defaultTasks}
         workload={{}}
         activityEntries={[]}
+        agentPresence={[]}
         activeView="workload"
       />,
     )
