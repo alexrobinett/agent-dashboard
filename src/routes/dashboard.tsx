@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate, redirect } from '@tanstack/react-router'
 import { useMutation, useQuery } from 'convex/react'
 import { convex } from '../lib/convex'
 import { api } from '../../convex/_generated/api'
+import type { Id } from '../../convex/_generated/dataModel'
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useFilters } from '../hooks/useFilters'
 import { useSearch } from '../hooks/useSearch'
@@ -29,6 +30,22 @@ import { BoardSkeleton } from '../components/skeletons'
 import { toast } from 'sonner'
 
 type DashboardView = 'board' | 'workload'
+type TaskId = Id<'tasks'>
+type TaskStatus = 'planning' | 'ready' | 'in_progress' | 'in_review' | 'done' | 'blocked'
+
+type DashboardTask = {
+  _id: TaskId
+  title?: string
+  taskKey?: string
+  description?: string
+  status?: string
+  assignedAgent?: string
+  project?: string
+  priority?: string
+  _status?: string
+}
+
+const MAX_TASK_ACTION_COMMANDS = 8
 
 export const Route = createFileRoute('/dashboard')({
   beforeLoad: async () => {
@@ -199,12 +216,12 @@ export function DashboardBoard({
   activityEntries,
   activeView,
 }: {
-  tasks: any
+  tasks: Record<string, DashboardTask[]>
   workload: WorkloadData
   activityEntries: ActivityEntry[]
   activeView: DashboardView
 }) {
-  const statusOrder = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
+  const statusOrder: TaskStatus[] = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
   const { filters, setFilter, clearFilters, hasActiveFilters } = useFilters()
   const reducedMotion = useReducedMotion()
   const navigate = useNavigate()
@@ -218,6 +235,9 @@ export function DashboardBoard({
   const [isCreatingTask, setIsCreatingTask] = useState(false)
   const focusedTaskIndexRef = useRef<number>(-1)
   const createTask = useMutation(api.tasks.createTask)
+  const claimTask = useMutation(api.tasks.claimTask)
+  const completeTask = useMutation(api.tasks.completeTask)
+  const updateTask = useMutation(api.tasks.updateTask)
 
   const setActiveView = useCallback(
     (view: DashboardView) => {
@@ -235,6 +255,19 @@ export function DashboardBoard({
       setActiveView('board')
     },
     [setActiveView, setFilter],
+  )
+
+  const runPaletteTaskAction = useCallback(
+    async (actionLabel: string, fn: () => Promise<unknown>, successMessage: string) => {
+      try {
+        await fn()
+        toast.success(successMessage)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        toast.error(`Failed to ${actionLabel.toLowerCase()}`, { description: message })
+      }
+    },
+    [],
   )
 
   // Collect unique projects and agents from all tasks for dropdown options
@@ -255,7 +288,7 @@ export function DashboardBoard({
 
   // Flatten all tasks for search filtering, then re-group by status
   const allTasks = useMemo(() => {
-    const flat: any[] = []
+    const flat: DashboardTask[] = []
     for (const status of statusOrder) {
       for (const task of tasks[status] || []) {
         flat.push({ ...task, _status: task.status ?? status })
@@ -362,6 +395,80 @@ export function DashboardBoard({
       },
     ]
 
+    const actionableTasks = searchResults.slice(0, MAX_TASK_ACTION_COMMANDS)
+    if (searchResults.length > MAX_TASK_ACTION_COMMANDS) {
+      baseCommands.push({
+        id: 'task-actions-truncated-notice',
+        group: 'Tasks',
+        label: `Task actions limited to first ${MAX_TASK_ACTION_COMMANDS} matches`,
+        subtitle: 'Refine your search to reveal actions for additional tasks',
+        keywords: ['task', 'actions', 'search', 'refine', 'limit'],
+        enabled: false,
+        onSelect: () => {},
+      })
+    }
+
+    for (const task of actionableTasks) {
+      const taskTitle = task.title?.trim() || task.taskKey || 'Untitled task'
+      const taskKeywords = [
+        'task',
+        taskTitle.toLowerCase(),
+        (task.taskKey ?? '').toLowerCase(),
+        (task.status ?? '').toLowerCase(),
+      ]
+
+      if (!task.assignedAgent && task.status !== 'done') {
+        baseCommands.push({
+          id: `task-claim-${task._id}`,
+          group: 'Tasks',
+          label: `Claim: ${taskTitle}`,
+          subtitle: 'Assign to you and move to in progress',
+          keywords: [...taskKeywords, 'claim', 'assign', 'in progress'],
+          onSelect: () => {
+            void runPaletteTaskAction(
+              'claim task',
+              () => claimTask({ taskId: task._id, agent: 'user' }),
+              `Claimed “${taskTitle}”`,
+            )
+          },
+        })
+      }
+
+      if (task.status !== 'done' && task.status !== 'cancelled') {
+        baseCommands.push({
+          id: `task-complete-${task._id}`,
+          group: 'Tasks',
+          label: `Complete: ${taskTitle}`,
+          subtitle: 'Mark task as done',
+          keywords: [...taskKeywords, 'complete', 'done', 'finish'],
+          onSelect: () => {
+            void runPaletteTaskAction(
+              'complete task',
+              () => completeTask({ taskId: task._id, result: 'Completed' }),
+              `Completed “${taskTitle}”`,
+            )
+          },
+        })
+      }
+
+      if (task.status !== 'blocked' && task.status !== 'done') {
+        baseCommands.push({
+          id: `task-block-${task._id}`,
+          group: 'Tasks',
+          label: `Block: ${taskTitle}`,
+          subtitle: 'Move task to blocked status',
+          keywords: [...taskKeywords, 'block', 'blocked'],
+          onSelect: () => {
+            void runPaletteTaskAction(
+              'block task',
+              () => updateTask({ taskId: task._id, status: 'blocked' }),
+              `Blocked “${taskTitle}”`,
+            )
+          },
+        })
+      }
+    }
+
     if (agents.length === 0) {
       baseCommands.push({
         id: 'agents-empty',
@@ -403,14 +510,19 @@ export function DashboardBoard({
     return baseCommands
   }, [
     agents,
+    claimTask,
     clearFilters,
+    completeTask,
     filters.agent,
     hasActiveFilters,
     isNewTaskOpen,
     newTaskDescription,
     newTaskTitle,
+    runPaletteTaskAction,
+    searchResults,
     setActiveView,
     setFilter,
+    updateTask,
   ])
 
   // Apply dropdown filters on top of search results, then re-group by status

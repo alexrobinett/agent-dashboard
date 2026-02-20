@@ -4,11 +4,17 @@ import userEvent from '@testing-library/user-event'
 import { DashboardBoard } from '../../routes/dashboard'
 
 const mockCreateTask = vi.fn()
+const mockClaimTask = vi.fn()
+const mockCompleteTask = vi.fn()
+const mockUpdateTask = vi.fn()
 
 vi.mock('../../../convex/_generated/api', () => ({
   api: {
     tasks: {
       createTask: 'tasks:createTask',
+      claimTask: 'tasks:claimTask',
+      completeTask: 'tasks:completeTask',
+      updateTask: 'tasks:updateTask',
     },
   },
 }))
@@ -16,6 +22,9 @@ vi.mock('../../../convex/_generated/api', () => ({
 vi.mock('convex/react', () => ({
   useMutation: (ref: string) => {
     if (ref === 'tasks:createTask') return mockCreateTask
+    if (ref === 'tasks:claimTask') return mockClaimTask
+    if (ref === 'tasks:completeTask') return mockCompleteTask
+    if (ref === 'tasks:updateTask') return mockUpdateTask
     return vi.fn()
   },
   ConvexReactClient: class {
@@ -55,7 +64,13 @@ const recorded = {
   sheetOpen: false,
   shortcutsOpen: false,
   commandPaletteOpen: false,
-  commandPaletteCommands: [] as Array<{ id: string; label: string; shortcut?: string }>,
+  commandPaletteCommands: [] as Array<{
+    id: string
+    label: string
+    shortcut?: string
+    enabled?: boolean
+    onSelect?: () => void
+  }>,
 }
 
 vi.mock('@tanstack/react-router', async () => {
@@ -139,7 +154,13 @@ vi.mock('../../components/CommandPalette', () => ({
     commands,
   }: {
     open: boolean
-    commands: Array<{ id: string; label: string; shortcut?: string }>
+    commands: Array<{
+      id: string
+      label: string
+      shortcut?: string
+      enabled?: boolean
+      onSelect?: () => void
+    }>
   }) => {
     recorded.commandPaletteOpen = open
     recorded.commandPaletteCommands = commands
@@ -187,6 +208,9 @@ function renderBoard(overrides?: { tasks?: any; activeView?: 'board' | 'workload
 beforeEach(() => {
   vi.clearAllMocks()
   mockCreateTask.mockResolvedValue('ok')
+  mockClaimTask.mockResolvedValue('ok')
+  mockCompleteTask.mockResolvedValue('ok')
+  mockUpdateTask.mockResolvedValue('ok')
   mockToastSuccess.mockReset()
   mockToastError.mockReset()
   mockFilters = { search: '', project: '', agent: '', priority: '' }
@@ -318,6 +342,12 @@ describe('DashboardBoard view toggles and board branches', () => {
         (command) => command.id === 'show-shortcuts' && command.shortcut === '?',
       ),
     ).toBe(true)
+    expect(
+      recorded.commandPaletteCommands.some((command) => command.id.startsWith('task-complete-')),
+    ).toBe(true)
+    expect(
+      recorded.commandPaletteCommands.some((command) => command.id.startsWith('task-block-')),
+    ).toBe(true)
   })
 
   it('supports keyboard card focus navigation and no-card guard', () => {
@@ -360,6 +390,86 @@ describe('DashboardBoard view toggles and board branches', () => {
     recorded.keyboardHandlers?.onNavigateUp()
     expect(document.activeElement).toBe(card3)
     card3.remove()
+  })
+})
+
+describe('command palette task actions', () => {
+  it('executes claim task action and reports success', async () => {
+    renderBoard({
+      tasks: {
+        planning: [{ _id: 'j57taskclaim001', title: 'Claim me', status: 'planning', assignedAgent: '', priority: 'normal' }],
+        ready: [],
+        in_progress: [],
+        in_review: [],
+        done: [],
+        blocked: [],
+      },
+    })
+
+    const claimCommand = recorded.commandPaletteCommands.find((command) => command.id === 'task-claim-j57taskclaim001')
+    expect(claimCommand).toBeDefined()
+
+    await act(async () => {
+      claimCommand?.onSelect?.()
+    })
+
+    await waitFor(() => {
+      expect(mockClaimTask).toHaveBeenCalledWith({ taskId: 'j57taskclaim001', agent: 'user' })
+    })
+    expect(mockToastSuccess).toHaveBeenCalledWith('Claimed “Claim me”')
+  })
+
+  it('shows error toast when task action mutation fails', async () => {
+    mockCompleteTask.mockRejectedValueOnce(new Error('Mutation failed'))
+
+    renderBoard({
+      tasks: {
+        planning: [],
+        ready: [{ _id: 'j57taskcomplete001', title: 'Complete me', status: 'ready', assignedAgent: 'forge', priority: 'high' }],
+        in_progress: [],
+        in_review: [],
+        done: [],
+        blocked: [],
+      },
+    })
+
+    const completeCommand = recorded.commandPaletteCommands.find((command) => command.id === 'task-complete-j57taskcomplete001')
+    expect(completeCommand).toBeDefined()
+
+    await act(async () => {
+      completeCommand?.onSelect?.()
+    })
+
+    await waitFor(() => {
+      expect(mockCompleteTask).toHaveBeenCalledWith({ taskId: 'j57taskcomplete001', result: 'Completed' })
+    })
+    expect(mockToastError).toHaveBeenCalledWith('Failed to complete task', { description: 'Mutation failed' })
+  })
+
+  it('adds discoverability cue when more than 8 task matches exist', () => {
+    const manyPlanningTasks = Array.from({ length: 10 }, (_, index) => ({
+      _id: `j57many${index}`,
+      title: `Task ${index}`,
+      status: 'planning',
+      assignedAgent: '',
+      priority: 'normal',
+    }))
+
+    renderBoard({
+      tasks: {
+        planning: manyPlanningTasks,
+        ready: [],
+        in_progress: [],
+        in_review: [],
+        done: [],
+        blocked: [],
+      },
+    })
+
+    const truncationCue = recorded.commandPaletteCommands.find((command) => command.id === 'task-actions-truncated-notice')
+    expect(truncationCue).toBeDefined()
+    expect(truncationCue?.enabled).toBe(false)
+    expect(truncationCue?.label).toContain('first 8 matches')
   })
 })
 
