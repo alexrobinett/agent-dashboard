@@ -253,6 +253,65 @@ describe('costTelemetry.record', () => {
   })
 })
 
+describe('costTelemetry aggregations + anomaly primitives', () => {
+  it('aggregateByPeriod creates ordered buckets and zero-fills missing intervals', () => {
+    const rows = [
+      makeTelemetry({ _id: 'a' as CostTelemetryId, timestamp: 1_700_000_100_000, estimatedCostUsd: 1, inputTokens: 10, outputTokens: 5 }),
+      makeTelemetry({ _id: 'b' as CostTelemetryId, timestamp: 1_700_000_200_000, estimatedCostUsd: 2, inputTokens: 20, outputTokens: 10 }),
+      makeTelemetry({ _id: 'c' as CostTelemetryId, timestamp: 1_700_172_800_000, estimatedCostUsd: 4, inputTokens: 40, outputTokens: 20 }),
+    ]
+
+    const result = costTelemetryModule.aggregateByPeriod(rows, 'day', 1_699_987_200_000, 1_700_259_199_999)
+    expect(result).toHaveLength(4)
+    expect(result.map((bucket) => bucket.entries)).toEqual([2, 0, 1, 0])
+    expect(result[0].costUsd).toBe(3)
+    expect(result[2].costUsd).toBe(4)
+  })
+
+  it('aggregateByProject groups by mapped project and falls back to unassigned', () => {
+    const rows = [
+      makeTelemetry({ _id: 'a' as CostTelemetryId, taskId: 'task-1' as TaskId, estimatedCostUsd: 2 }),
+      makeTelemetry({ _id: 'b' as CostTelemetryId, taskId: 'task-1' as TaskId, estimatedCostUsd: 3 }),
+      makeTelemetry({ _id: 'c' as CostTelemetryId, taskId: 'task-2' as TaskId, estimatedCostUsd: 5 }),
+    ]
+
+    const projects = costTelemetryModule.aggregateByProject(rows, new Map<TaskId, string>([
+      ['task-1' as TaskId, 'alpha'],
+    ]))
+
+    expect(projects).toHaveLength(2)
+    expect(projects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ project: 'unassigned', costUsd: 5, entries: 1 }),
+      expect.objectContaining({ project: 'alpha', costUsd: 5, entries: 2 }),
+    ]))
+  })
+
+  it('detectAnomaliesFromAggregates flags spikes and outliers', () => {
+    const anomalies = costTelemetryModule.detectAnomaliesFromAggregates(
+      [
+        { bucketStart: 1, bucketEnd: 2, label: 'd1', entries: 1, inputTokens: 1, outputTokens: 1, costUsd: 10 },
+        { bucketStart: 3, bucketEnd: 4, label: 'd2', entries: 1, inputTokens: 1, outputTokens: 1, costUsd: 11 },
+        { bucketStart: 5, bucketEnd: 6, label: 'd3', entries: 1, inputTokens: 1, outputTokens: 1, costUsd: 12 },
+        { bucketStart: 7, bucketEnd: 8, label: 'd4', entries: 1, inputTokens: 1, outputTokens: 1, costUsd: 40 },
+      ],
+      [
+        { project: 'core', entries: 5, inputTokens: 10, outputTokens: 10, costUsd: 200 },
+        { project: 'misc-a', entries: 5, inputTokens: 10, outputTokens: 10, costUsd: 10 },
+        { project: 'misc-b', entries: 5, inputTokens: 10, outputTokens: 10, costUsd: 10 },
+      ],
+      [
+        { category: 'forge', categoryType: 'agent', entries: 5, inputTokens: 10, outputTokens: 10, costUsd: 180 },
+        { category: 'sentinel', categoryType: 'agent', entries: 5, inputTokens: 10, outputTokens: 10, costUsd: 20 },
+        { category: 'jarvis', categoryType: 'agent', entries: 5, inputTokens: 10, outputTokens: 10, costUsd: 10 },
+      ],
+    )
+
+    expect(anomalies.some((a) => a.kind === 'spike')).toBe(true)
+    expect(anomalies.some((a) => a.kind === 'project_outlier' && a.project === 'core')).toBe(true)
+    expect(anomalies.some((a) => a.kind === 'category_outlier' && a.category === 'forge')).toBe(true)
+  })
+})
+
 describe('costTelemetry read queries', () => {
   it('listByTask returns newest rows for the task and applies limit', async () => {
     const ctx = makeCtx([
