@@ -5,6 +5,8 @@ import type { Id } from './_generated/dataModel'
 const MAX_LIMIT = 200
 const MAX_AGENT_LEN = 80
 const MAX_MODEL_LEN = 120
+const MAX_RUN_ID_LEN = 200
+const MAX_SESSION_KEY_LEN = 200
 
 function requireNonEmptyTrimmed(value: string, fieldName: string, maxLen: number): string {
   const trimmed = value.trim()
@@ -31,9 +33,16 @@ function requireNonNegativeFinite(value: number, fieldName: string): number {
   return value
 }
 
-function normalizeOptionalString(value: string | undefined): string | undefined {
+function normalizeOptionalString(
+  value: string | undefined,
+  fieldName: string,
+  maxLen: number,
+): string | undefined {
   if (value === undefined) return undefined
   const trimmed = value.trim()
+  if (trimmed.length > maxLen) {
+    throw new Error(`${fieldName} must be <= ${maxLen} characters`)
+  }
   return trimmed.length > 0 ? trimmed : undefined
 }
 
@@ -82,8 +91,8 @@ export const record = mutation({
       outputTokens,
       estimatedCostUsd,
       timestamp,
-      runId: normalizeOptionalString(args.runId),
-      sessionKey: normalizeOptionalString(args.sessionKey),
+      runId: normalizeOptionalString(args.runId, 'runId', MAX_RUN_ID_LEN),
+      sessionKey: normalizeOptionalString(args.sessionKey, 'sessionKey', MAX_SESSION_KEY_LEN),
     }
 
     const id = await ctx.db.insert('costTelemetry', doc)
@@ -112,11 +121,11 @@ export const listByRun = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const runId = requireNonEmptyTrimmed(args.runId, 'runId', 200)
+    const runId = requireNonEmptyTrimmed(args.runId, 'runId', MAX_RUN_ID_LEN)
     const limit = normalizeLimit(args.limit)
     return await ctx.db
       .query('costTelemetry')
-      .withIndex('by_run_id', (q) => q.eq('runId', runId))
+      .withIndex('by_run_id_and_timestamp', (q) => q.eq('runId', runId))
       .order('desc')
       .take(limit)
   },

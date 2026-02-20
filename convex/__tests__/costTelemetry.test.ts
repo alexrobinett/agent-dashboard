@@ -13,7 +13,7 @@ type CostTelemetryId = Id<'costTelemetry'>
 type TaskId = Id<'tasks'>
 type CostTelemetryFields = Omit<CostTelemetryDoc, '_id' | '_creationTime'>
 type EqField = 'taskId' | 'runId'
-type IndexName = 'by_task_and_timestamp' | 'by_run_id'
+type IndexName = 'by_task_and_timestamp' | 'by_run_id_and_timestamp'
 
 type HandlerConfig<TArgs, TResult> = {
   handler: (ctx: MockCtx, args: TArgs) => Promise<TResult>
@@ -66,6 +66,7 @@ type MockCtx = {
   }
   auth: { getUserIdentity: () => Promise<{ tokenIdentifier: string; subject: string; issuer: string } | null> }
   _docs: CostTelemetryDoc[]
+  _queryCalls: Array<{ indexName: IndexName; eqCalls: Array<{ field: EqField; value: string }> }>
 }
 
 function makeTelemetry(overrides: Partial<CostTelemetryFields> & { _id: CostTelemetryId }): CostTelemetryDoc {
@@ -87,6 +88,7 @@ function makeTelemetry(overrides: Partial<CostTelemetryFields> & { _id: CostTele
 function makeCtx(initialDocs: CostTelemetryDoc[]): MockCtx {
   const docs = [...initialDocs]
   let idCounter = 1
+  const queryCalls: Array<{ indexName: IndexName; eqCalls: Array<{ field: EqField; value: string }> }> = []
 
   return {
     db: {
@@ -105,19 +107,30 @@ function makeCtx(initialDocs: CostTelemetryDoc[]): MockCtx {
             },
           }
           indexFn(chain)
+          const queryCall = { indexName, eqCalls: [...eqCalls] }
 
           let filtered = [...docs]
           for (const call of eqCalls) {
             filtered = filtered.filter((doc: any) => doc[call.field] === call.value)
           }
-
-          if (indexName === 'by_task_and_timestamp' || indexName === 'by_run_id') {
-            filtered.sort((a: any, b: any) => (b.timestamp as number) - (a.timestamp as number))
-          }
+          const supportsTimestampOrdering =
+            indexName === 'by_task_and_timestamp' || indexName === 'by_run_id_and_timestamp'
 
           return {
-            order: () => ({
-              take: async (n: number) => filtered.slice(0, n),
+            order: (order) => ({
+              take: async (n: number) => {
+                const ordered = [...filtered]
+                if (supportsTimestampOrdering) {
+                  ordered.sort((a: any, b: any) =>
+                    order === 'asc'
+                      ? (a.timestamp as number) - (b.timestamp as number)
+                      : (b.timestamp as number) - (a.timestamp as number)
+                  )
+                }
+                queryCall.eqCalls = [...eqCalls]
+                queryCalls.push(queryCall)
+                return ordered.slice(0, n)
+              },
             }),
           }
         },
@@ -127,6 +140,7 @@ function makeCtx(initialDocs: CostTelemetryDoc[]): MockCtx {
       getUserIdentity: async () => ({ tokenIdentifier: 'test|user', subject: 'test-user', issuer: 'test' }),
     },
     _docs: docs,
+    _queryCalls: queryCalls,
   }
 }
 
@@ -212,6 +226,31 @@ describe('costTelemetry.record', () => {
       estimatedCostUsd: -0.1,
     })).rejects.toThrow('estimatedCostUsd must be a non-negative number')
   })
+
+  it('rejects runId and sessionKey longer than 200 characters', async () => {
+    const ctx = makeCtx([])
+    const tooLong = 'x'.repeat(201)
+
+    await expect(recordHandler(ctx, {
+      taskId: 'task-d' as TaskId,
+      agent: 'forge',
+      model: 'gpt-5',
+      inputTokens: 1,
+      outputTokens: 2,
+      estimatedCostUsd: 0.1,
+      runId: tooLong,
+    })).rejects.toThrow('runId must be <= 200 characters')
+
+    await expect(recordHandler(ctx, {
+      taskId: 'task-d' as TaskId,
+      agent: 'forge',
+      model: 'gpt-5',
+      inputTokens: 1,
+      outputTokens: 2,
+      estimatedCostUsd: 0.1,
+      sessionKey: tooLong,
+    })).rejects.toThrow('sessionKey must be <= 200 characters')
+  })
 })
 
 describe('costTelemetry read queries', () => {
@@ -264,5 +303,17 @@ describe('costTelemetry read queries', () => {
 
     const result = await listByRunHandler(ctx, { runId: 'run-1', limit: 10 })
     expect(result.map((row) => row._id)).toEqual(['c', 'a'])
+    expect(ctx._queryCalls[0]).toEqual({
+      indexName: 'by_run_id_and_timestamp',
+      eqCalls: [{ field: 'runId', value: 'run-1' }],
+    })
+  })
+
+  it('listByRun enforces the same runId length cap as record writes', async () => {
+    const ctx = makeCtx([])
+    const tooLong = 'x'.repeat(201)
+    await expect(listByRunHandler(ctx, { runId: tooLong, limit: 10 }))
+      .rejects
+      .toThrow('runId must be <= 200 characters')
   })
 })

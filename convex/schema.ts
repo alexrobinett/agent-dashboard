@@ -165,6 +165,7 @@ export default defineSchema({
     .index('by_timestamp', ['timestamp'])
     .index('by_task_and_timestamp', ['taskId', 'timestamp'])
     .index('by_run_id', ['runId'])
+    .index('by_run_id_and_timestamp', ['runId', 'timestamp'])
     .index('by_session_key', ['sessionKey']),
 
   // Push tokens for iOS push notifications
