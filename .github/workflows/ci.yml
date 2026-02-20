@@ -35,7 +35,7 @@ jobs:
         run: bash scripts/generate-stubs.sh
       
       - name: Run ESLint
-        run: pnpm lint
+        run: pnpm lint:full
 
   typecheck:
     name: Type Check
