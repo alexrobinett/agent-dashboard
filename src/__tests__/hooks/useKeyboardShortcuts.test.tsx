@@ -7,14 +7,17 @@ import { KeyboardShortcutsOverlay } from '../../components/KeyboardShortcutsOver
 function KeyboardHarness() {
   const [overlayOpen, setOverlayOpen] = useState(false)
   const [newTaskOpen, setNewTaskOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const [view, setView] = useState<'board' | 'workload'>('workload')
   const searchRef = useRef<HTMLInputElement>(null)
 
   useKeyboardShortcuts({
+    onToggleCommandPalette: () => setPaletteOpen((prev) => !prev),
     onToggleShortcutsHelp: () => setOverlayOpen((prev) => !prev),
     onOpenNewTask: () => setNewTaskOpen(true),
     onFocusSearch: () => searchRef.current?.focus(),
     onEscape: () => {
+      setPaletteOpen(false)
       setOverlayOpen(false)
       setNewTaskOpen(false)
     },
@@ -22,6 +25,7 @@ function KeyboardHarness() {
     onNavigateUp: () => {},
     onGoToBoard: () => setView('board'),
     onGoToWorkload: () => setView('workload'),
+    isCommandPaletteOpen: paletteOpen,
   })
 
   return (
@@ -29,6 +33,7 @@ function KeyboardHarness() {
       <input ref={searchRef} data-testid="search-input" />
       <input data-testid="secondary-input" />
       <div data-testid="current-view">{view}</div>
+      <div data-testid="palette-state">{paletteOpen ? 'open' : 'closed'}</div>
       {newTaskOpen ? <div data-testid="new-task-open" /> : null}
       <KeyboardShortcutsOverlay open={overlayOpen} onOpenChange={setOverlayOpen} />
     </div>
@@ -49,6 +54,8 @@ describe('useKeyboardShortcuts', () => {
 
     fireEvent.keyDown(window, { key: '?' })
     expect(screen.getByTestId('keyboard-shortcuts-overlay')).toBeDefined()
+    expect(screen.getByText('Toggle command palette')).toBeDefined()
+    expect(screen.getByText(/cmd\/ctrl \+ k/i)).toBeDefined()
 
     fireEvent.keyDown(window, { key: '?' })
     expect(screen.queryByTestId('keyboard-shortcuts-overlay')).toBeNull()
@@ -78,5 +85,26 @@ describe('useKeyboardShortcuts', () => {
     fireEvent.keyDown(window, { key: 'b' })
 
     expect(screen.getByTestId('current-view').textContent).toBe('board')
+  })
+
+  it('cmd/ctrl+k toggles command palette state', () => {
+    render(<KeyboardHarness />)
+
+    expect(screen.getByTestId('palette-state').textContent).toBe('closed')
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    expect(screen.getByTestId('palette-state').textContent).toBe('open')
+
+    fireEvent.keyDown(window, { key: 'k', metaKey: true })
+    expect(screen.getByTestId('palette-state').textContent).toBe('closed')
+  })
+
+  it('escape closes command palette when open', () => {
+    render(<KeyboardHarness />)
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+    expect(screen.getByTestId('palette-state').textContent).toBe('open')
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.getByTestId('palette-state').textContent).toBe('closed')
   })
 })
