@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate, redirect } from '@tanstack/react-router'
 import { useMutation, useQuery } from 'convex/react'
 import { convex } from '../lib/convex'
 import { api } from '../../convex/_generated/api'
+import type { Id } from '../../convex/_generated/dataModel'
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useFilters } from '../hooks/useFilters'
 import { useSearch } from '../hooks/useSearch'
@@ -29,6 +30,22 @@ import { BoardSkeleton } from '../components/skeletons'
 import { toast } from 'sonner'
 
 type DashboardView = 'board' | 'workload'
+type TaskId = Id<'tasks'>
+type TaskStatus = 'planning' | 'ready' | 'in_progress' | 'in_review' | 'done' | 'blocked'
+
+type DashboardTask = {
+  _id: TaskId
+  title?: string
+  taskKey?: string
+  description?: string
+  status?: string
+  assignedAgent?: string
+  project?: string
+  priority?: string
+  _status?: string
+}
+
+const MAX_TASK_ACTION_COMMANDS = 8
 
 export const Route = createFileRoute('/dashboard')({
   beforeLoad: async () => {
@@ -199,12 +216,12 @@ export function DashboardBoard({
   activityEntries,
   activeView,
 }: {
-  tasks: any
+  tasks: Record<string, DashboardTask[]>
   workload: WorkloadData
   activityEntries: ActivityEntry[]
   activeView: DashboardView
 }) {
-  const statusOrder = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
+  const statusOrder: TaskStatus[] = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
   const { filters, setFilter, clearFilters, hasActiveFilters } = useFilters()
   const reducedMotion = useReducedMotion()
   const navigate = useNavigate()
@@ -271,7 +288,7 @@ export function DashboardBoard({
 
   // Flatten all tasks for search filtering, then re-group by status
   const allTasks = useMemo(() => {
-    const flat: any[] = []
+    const flat: DashboardTask[] = []
     for (const status of statusOrder) {
       for (const task of tasks[status] || []) {
         flat.push({ ...task, _status: task.status ?? status })
@@ -378,7 +395,19 @@ export function DashboardBoard({
       },
     ]
 
-    const actionableTasks = searchResults.slice(0, 8)
+    const actionableTasks = searchResults.slice(0, MAX_TASK_ACTION_COMMANDS)
+    if (searchResults.length > MAX_TASK_ACTION_COMMANDS) {
+      baseCommands.push({
+        id: 'task-actions-truncated-notice',
+        group: 'Tasks',
+        label: `Task actions limited to first ${MAX_TASK_ACTION_COMMANDS} matches`,
+        subtitle: 'Refine your search to reveal actions for additional tasks',
+        keywords: ['task', 'actions', 'search', 'refine', 'limit'],
+        enabled: false,
+        onSelect: () => {},
+      })
+    }
+
     for (const task of actionableTasks) {
       const taskTitle = task.title?.trim() || task.taskKey || 'Untitled task'
       const taskKeywords = [
@@ -398,7 +427,7 @@ export function DashboardBoard({
           onSelect: () => {
             void runPaletteTaskAction(
               'claim task',
-              () => claimTask({ taskId: task._id as any, agent: 'user' }),
+              () => claimTask({ taskId: task._id, agent: 'user' }),
               `Claimed “${taskTitle}”`,
             )
           },
@@ -415,7 +444,7 @@ export function DashboardBoard({
           onSelect: () => {
             void runPaletteTaskAction(
               'complete task',
-              () => completeTask({ taskId: task._id as any, result: 'Completed' }),
+              () => completeTask({ taskId: task._id, result: 'Completed' }),
               `Completed “${taskTitle}”`,
             )
           },
@@ -432,7 +461,7 @@ export function DashboardBoard({
           onSelect: () => {
             void runPaletteTaskAction(
               'block task',
-              () => updateTask({ taskId: task._id as any, status: 'blocked' }),
+              () => updateTask({ taskId: task._id, status: 'blocked' }),
               `Blocked “${taskTitle}”`,
             )
           },
