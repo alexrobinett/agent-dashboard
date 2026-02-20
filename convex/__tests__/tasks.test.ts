@@ -45,6 +45,8 @@ const listTasksHandler = (taskModule.listTasks as unknown as HandlerExtractor).h
 const getTaskHandler = (taskModule.getTask as unknown as HandlerExtractor).handler
 const getBoardHandler = (taskModule.getBoard as unknown as HandlerExtractor).handler
 const getWorkloadByAgentStatusHandler = (taskModule.getWorkloadByAgentStatus as unknown as HandlerExtractor).handler
+const getAgentPresenceHandler = (taskModule.getAgentPresence as unknown as HandlerExtractor).handler
+const heartbeatHandler = (taskModule.heartbeat as unknown as HandlerExtractor).handler
 
 // Deprecated handlers
 
@@ -63,7 +65,7 @@ function makeTask(overrides: Partial<Task> & { _id: TaskId }): Task {
   } as Task
 }
 
-function mockCtx(tasks: Task[]) {
+function mockCtx(tasks: Task[], activityLog: Array<Record<string, unknown>> = []) {
   // Track patches for assertions
   const patches: Array<{ id: TaskId; fields: Record<string, unknown> }> = []
   const inserted: Array<{ table: string; doc: Record<string, unknown> }> = []
@@ -76,8 +78,9 @@ function mockCtx(tasks: Task[]) {
     _deleted: deleted,
     _runMutations: runMutations,
     db: {
-      query: (_table: string) => {
-        const makeChain = (filtered: Task[]) => ({
+      query: (table: string) => {
+        const rows = table === 'activityLog' ? activityLog : tasks
+        const makeChain = (filtered: any[]) => ({
           order: (_dir: string) => ({
             take: async (n: number) => filtered.slice(0, n),
           }),
@@ -100,11 +103,14 @@ function mockCtx(tasks: Task[]) {
             return makeChain(result)
           },
         })
-        return makeChain([...tasks])
+        return makeChain([...rows])
       },
       get: async (id: TaskId) => tasks.find(t => t._id === id) ?? null,
       insert: async (_table: string, _doc: Record<string, unknown>) => {
         inserted.push({ table: _table, doc: _doc })
+        if (_table === 'activityLog') {
+          activityLog.push(_doc)
+        }
         return 'new-id' as TaskId
       },
       patch: async (_id: TaskId, _fields: Record<string, unknown>) => {
@@ -420,6 +426,73 @@ describe('getWorkload query handler', () => {
     const result = await getWorkloadHandler(ctx, {})
 
     expect(Object.keys(result)).toHaveLength(0)
+  })
+})
+
+describe('getAgentPresence query handler', () => {
+  it('should return one active task per agent with runtime and cost snapshot', async () => {
+    const now = Date.now()
+    const tasks = [
+      makeTask({
+        _id: 'p1' as TaskId,
+        title: 'Primary',
+        assignedAgent: 'forge',
+        status: 'in_progress',
+        startedAt: now - 10_000,
+        lastHeartbeatAt: now - 2_000,
+        runId: 'run-1',
+        sessionKey: 'sess-1',
+        costSoFarUsd: 1.25,
+      } as any),
+      makeTask({
+        _id: 'p2' as TaskId,
+        title: 'Older',
+        assignedAgent: 'forge',
+        status: 'ready',
+        createdAt: now - 90_000,
+      } as any),
+      makeTask({
+        _id: 'p3' as TaskId,
+        title: 'Sentinel task',
+        assignedAgent: 'sentinel',
+        status: 'in_review',
+        createdAt: now - 30_000,
+      } as any),
+    ]
+    const logs = [
+      { taskId: 'p3', timestamp: now - 1_000 },
+    ]
+
+    const ctx = mockCtx(tasks, logs)
+    const result = await getAgentPresenceHandler(ctx, {})
+
+    expect(result).toHaveLength(2)
+    const forge = result.find((row: any) => row.agent === 'forge')
+    const sentinel = result.find((row: any) => row.agent === 'sentinel')
+    expect(forge.activeTask.taskId).toBe('p1')
+    expect(forge.status).toBe('in_progress')
+    expect(forge.runId).toBe('run-1')
+    expect(forge.sessionKey).toBe('sess-1')
+    expect(forge.costSoFarUsd).toBe(1.25)
+    expect(forge.elapsedRuntimeMs).toBeGreaterThanOrEqual(9_000)
+    expect(forge.lastSeen).toBe(now - 2_000)
+    expect(sentinel.lastSeen).toBe(now - 1_000)
+  })
+
+  it('should filter by agent and exclude terminal tasks', async () => {
+    const now = Date.now()
+    const tasks = [
+      makeTask({ _id: 'q1' as TaskId, assignedAgent: 'forge', status: 'done', createdAt: now - 100 } as any),
+      makeTask({ _id: 'q2' as TaskId, assignedAgent: 'forge', status: 'cancelled', createdAt: now - 90 } as any),
+      makeTask({ _id: 'q3' as TaskId, assignedAgent: 'forge', status: 'ready', createdAt: now - 80 } as any),
+      makeTask({ _id: 'q4' as TaskId, assignedAgent: 'sentinel', status: 'in_progress', createdAt: now - 70 } as any),
+    ]
+    const ctx = mockCtx(tasks)
+    const result = await getAgentPresenceHandler(ctx, { agent: 'forge' })
+
+    expect(result).toHaveLength(1)
+    expect(result[0].agent).toBe('forge')
+    expect(result[0].activeTask.taskId).toBe('q3')
   })
 })
 
@@ -1087,6 +1160,50 @@ describe('update Mutation - Edge Cases', () => {
 // ═══════════════════════════════════════════════════════════
 // NEW TESTS — Agent Workflow Mutations (clawd)
 // ═══════════════════════════════════════════════════════════
+
+describe('heartbeat', () => {
+  it('should update lastHeartbeatAt and return heartbeat metadata', async () => {
+    const task = makeTask({ _id: 'hb1' as TaskId, status: 'in_progress', version: 2 } as any)
+    const ctx = mockCtx([task])
+    const result = await heartbeatHandler(ctx, {
+      taskId: 'hb1' as TaskId,
+      actor: 'forge',
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.lastSeen).toBeTypeOf('number')
+    expect(result.version).toBe(3)
+    expect(ctx._patches[0].fields.lastHeartbeatAt).toBeTypeOf('number')
+  })
+
+  it('should patch run/session and cost when provided', async () => {
+    const task = makeTask({ _id: 'hb2' as TaskId, status: 'in_progress' } as any)
+    const ctx = mockCtx([task])
+    await heartbeatHandler(ctx, {
+      taskId: 'hb2' as TaskId,
+      actor: 'forge',
+      runId: 'run-22',
+      sessionKey: 'sess-22',
+      costSoFarUsd: 3.5,
+      note: 'still running',
+    })
+
+    const patch = ctx._patches[0].fields
+    expect(patch.runId).toBe('run-22')
+    expect(patch.sessionKey).toBe('sess-22')
+    expect(patch.costSoFarUsd).toBe(3.5)
+    expect(patch.notes).toContain('heartbeat')
+    expect(patch.notes).toContain('still running')
+  })
+
+  it('should throw when task is missing', async () => {
+    const ctx = mockCtx([])
+    await expect(heartbeatHandler(ctx, {
+      taskId: 'missing' as TaskId,
+      actor: 'forge',
+    })).rejects.toThrow('Task not found')
+  })
+})
 
 // ──────────────────────────────────────────────────────────
 // pushStatus

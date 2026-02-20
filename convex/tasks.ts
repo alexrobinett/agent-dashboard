@@ -244,6 +244,7 @@ export function aggregateWorkload(
 
 type QueryCtx = { db: { query: (table: 'tasks') => any } }
 type IndexSelector = (q: any) => any
+type ActivityQueryCtx = { db: { query: (table: 'activityLog') => any } }
 
 /**
  * Test mocks in this repo expose query().order().take() without withIndex().
@@ -256,6 +257,21 @@ async function queryTasksWithOptionalIndex(
   indexSelector?: IndexSelector,
 ) {
   const baseQuery = ctx.db.query('tasks')
+  const maybeWithIndex = (baseQuery as { withIndex?: (name: string, fn?: IndexSelector) => any }).withIndex
+  const orderedQuery =
+    indexName && typeof maybeWithIndex === 'function'
+      ? maybeWithIndex.call(baseQuery, indexName, indexSelector).order('desc')
+      : baseQuery.order('desc')
+  return await orderedQuery.take(take)
+}
+
+async function queryActivityWithOptionalIndex(
+  ctx: ActivityQueryCtx,
+  take: number,
+  indexName?: string,
+  indexSelector?: IndexSelector,
+) {
+  const baseQuery = ctx.db.query('activityLog')
   const maybeWithIndex = (baseQuery as { withIndex?: (name: string, fn?: IndexSelector) => any }).withIndex
   const orderedQuery =
     indexName && typeof maybeWithIndex === 'function'
@@ -468,9 +484,148 @@ export const getBoard = query({
   },
 })
 
+/**
+ * API shape for S7.4 live agent presence:
+ * - `activeTask`: current non-terminal task selected per agent (most recently seen)
+ * - `status`: active task status
+ * - `lastSeen`: ms epoch derived from heartbeat first, then activity/task timestamps
+ * - `elapsedRuntimeMs`: wall runtime since `startedAt` when available
+ * - `costSoFarUsd`: optional running cost snapshot, only present when agent reports it
+ */
+export const getAgentPresence = query({
+  args: {
+    agent: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const max = Math.max(1, Math.min(args?.limit ?? 50, 200))
+    const requestedAgent = args?.agent
+    const now = Date.now()
+
+    const tasks = await queryTasksWithOptionalIndex(ctx, 1000, 'by_created_at')
+    const activeTasks = tasks.filter((task) => {
+      const assignedAgent = task.assignedAgent
+      if (!assignedAgent) return false
+      if (requestedAgent && assignedAgent !== requestedAgent) return false
+      return task.status !== 'done' && task.status !== 'cancelled'
+    })
+    if (activeTasks.length === 0) return []
+
+    const candidateTaskIds = new Set(activeTasks.map(task => String(task._id)))
+    const recentActivity = await queryActivityWithOptionalIndex(
+      ctx,
+      Math.max(200, max * 20),
+      'by_timestamp',
+    )
+    const activityLastSeenByTask = new Map<string, number>()
+    for (const entry of recentActivity) {
+      const taskId = String(entry.taskId)
+      if (!candidateTaskIds.has(taskId)) continue
+      if (typeof entry.timestamp !== 'number') continue
+      const previous = activityLastSeenByTask.get(taskId) ?? 0
+      if (entry.timestamp > previous) {
+        activityLastSeenByTask.set(taskId, entry.timestamp)
+      }
+    }
+
+    const chosenByAgent = new Map<string, typeof activeTasks[number]>()
+    const rankByAgent = new Map<string, number>()
+    for (const task of activeTasks) {
+      const taskId = String(task._id)
+      const lastSeen = Math.max(
+        task.lastHeartbeatAt ?? 0,
+        activityLastSeenByTask.get(taskId) ?? 0,
+        task.startedAt ?? 0,
+        task.createdAt ?? 0,
+      )
+      const agentName = task.assignedAgent as string
+      const previousRank = rankByAgent.get(agentName) ?? -1
+      if (lastSeen > previousRank) {
+        rankByAgent.set(agentName, lastSeen)
+        chosenByAgent.set(agentName, task)
+      }
+    }
+
+    return [...chosenByAgent.entries()]
+      .map(([agentName, task]) => {
+        const taskId = String(task._id)
+        const lastSeen = Math.max(
+          task.lastHeartbeatAt ?? 0,
+          activityLastSeenByTask.get(taskId) ?? 0,
+          task.startedAt ?? 0,
+          task.createdAt ?? 0,
+        )
+        return {
+          agent: agentName,
+          activeTask: {
+            taskId: task._id,
+            taskKey: task.taskKey,
+            title: task.title,
+            project: task.project,
+          },
+          status: task.status,
+          runId: task.runId,
+          sessionKey: task.sessionKey,
+          lastSeen,
+          elapsedRuntimeMs: task.startedAt ? Math.max(0, now - task.startedAt) : null,
+          costSoFarUsd: task.costSoFarUsd,
+        }
+      })
+      .sort((a, b) => b.lastSeen - a.lastSeen)
+      .slice(0, max)
+  },
+})
+
 // ═══════════════════════════════════════════════════════════
 // MUTATIONS — Agent Workflow (from clawd)
 // ═══════════════════════════════════════════════════════════
+
+/**
+ * Lightweight heartbeat contract for live presence.
+ * Agents can call this periodically while a task is active to refresh `lastSeen`
+ * and optionally update run/session identity plus running cost snapshots.
+ */
+export const heartbeat = mutation({
+  args: {
+    taskId: v.id('tasks'),
+    actor: v.string(),
+    runId: v.optional(v.string()),
+    sessionKey: v.optional(v.string()),
+    costSoFarUsd: v.optional(v.number()),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, _args) => {
+    // [security] Require authenticated Convex identity (j57bds0a8vv8qk349dqsnfw65h81d99x)
+    const identity = await ctx.auth.getUserIdentity()
+    if (!identity) throw new Error('Unauthenticated')
+
+    const { taskId, actor, runId, sessionKey, costSoFarUsd, note } = _args as any
+    const task = await ctx.db.get(taskId as Id<'tasks'>)
+    if (!task) throw new Error('Task not found')
+
+    const now = Date.now()
+    const patch: Record<string, unknown> = {
+      lastHeartbeatAt: now,
+      version: (task.version || 0) + 1,
+    }
+    if (runId !== undefined) patch.runId = runId
+    if (sessionKey !== undefined) patch.sessionKey = sessionKey
+    if (costSoFarUsd !== undefined) patch.costSoFarUsd = Math.max(0, costSoFarUsd)
+    if (note !== undefined) {
+      const timestamp = new Date(now).toISOString()
+      const existingNotes = task.notes || ''
+      const heartbeatLog = `[${timestamp}] ${actor}: heartbeat${note ? ` — ${note}` : ''}`
+      patch.notes = sanitizeText(existingNotes ? `${existingNotes}\n${heartbeatLog}` : heartbeatLog, 4000)
+    }
+
+    await ctx.db.patch(taskId, patch)
+    return {
+      ok: true,
+      lastSeen: now,
+      version: patch.version,
+    }
+  },
+})
 
 /** Primary API for status updates from OpenClaw agents */
 export const pushStatus = mutation({
