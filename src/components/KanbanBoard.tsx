@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useCallback, useMemo, useSyncExternalStore } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -67,13 +67,19 @@ function regroupByStatus(tasks: Task[]) {
   return grouped
 }
 
+function useIsClient() {
+  return useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  )
+}
+
 export function KanbanBoard({ tasks, activityEntries = [] }: KanbanBoardProps) {
-  const [mounted, setMounted] = useState(false)
+  const isClient = useIsClient()
   const [laneSearchQuery, setLaneSearchQuery] = useState('')
 
-  useEffect(() => setMounted(true), [])
-
-  return mounted ? (
+  return isClient ? (
     <KanbanBoardInteractive
       tasks={tasks}
       activityEntries={activityEntries}

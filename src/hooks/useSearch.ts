@@ -18,16 +18,14 @@ export function useSearch<T extends SearchableTask>(tasks: T[], query: string) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    if (trimmedQuery === '') {
-      // Clear search immediately — no debounce needed
-      if (timerRef.current) clearTimeout(timerRef.current)
-      setDebouncedQuery('')
-      return
-    }
+    if (timerRef.current) clearTimeout(timerRef.current)
 
-    timerRef.current = setTimeout(() => {
-      setDebouncedQuery(trimmedQuery)
-    }, DEBOUNCE_MS)
+    timerRef.current = setTimeout(
+      () => {
+        setDebouncedQuery(trimmedQuery)
+      },
+      trimmedQuery === '' ? 0 : DEBOUNCE_MS,
+    )
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current)
@@ -37,6 +35,7 @@ export function useSearch<T extends SearchableTask>(tasks: T[], query: string) {
   const isSearching = !isEmptyQuery && trimmedQuery !== debouncedQuery
 
   const filteredTasks = useMemo(() => {
+    if (trimmedQuery === '') return tasks
     if (debouncedQuery === '') return tasks
 
     const q = debouncedQuery.toLowerCase()
@@ -47,7 +46,7 @@ export function useSearch<T extends SearchableTask>(tasks: T[], query: string) {
       const id = (task._id ?? '').toLowerCase()
       return title.includes(q) || description.includes(q) || taskKey.includes(q) || id.includes(q)
     })
-  }, [tasks, debouncedQuery])
+  }, [tasks, debouncedQuery, trimmedQuery])
 
   return { filteredTasks, isSearching }
 }
