@@ -376,3 +376,156 @@ describe('costTelemetry read queries', () => {
       .toThrow('runId must be <= 200 characters')
   })
 })
+
+describe('costTelemetry aggregateByCategory', () => {
+  it('aggregateByCategory groups by agent and merges duplicate entries', () => {
+    const rows = [
+      makeTelemetry({ _id: 'a' as CostTelemetryId, agent: 'forge', model: 'gpt-5', estimatedCostUsd: 1, inputTokens: 10, outputTokens: 5 }),
+      makeTelemetry({ _id: 'b' as CostTelemetryId, agent: 'forge', model: 'gpt-5', estimatedCostUsd: 2, inputTokens: 20, outputTokens: 10 }),
+      makeTelemetry({ _id: 'c' as CostTelemetryId, agent: 'sentinel', model: 'claude-3', estimatedCostUsd: 5, inputTokens: 50, outputTokens: 25 }),
+    ]
+
+    const result = costTelemetryModule.aggregateByCategory(rows, 'agent')
+    expect(result).toHaveLength(2)
+    // sorted by costUsd descending
+    expect(result[0].category).toBe('sentinel')
+    expect(result[0].categoryType).toBe('agent')
+    expect(result[0].entries).toBe(1)
+    expect(result[0].costUsd).toBe(5)
+    expect(result[1].category).toBe('forge')
+    expect(result[1].entries).toBe(2)
+    expect(result[1].costUsd).toBe(3)
+    expect(result[1].inputTokens).toBe(30)
+  })
+
+  it('aggregateByCategory groups by model type', () => {
+    const rows = [
+      makeTelemetry({ _id: 'a' as CostTelemetryId, agent: 'forge', model: 'gpt-5', estimatedCostUsd: 3, inputTokens: 30, outputTokens: 15 }),
+      makeTelemetry({ _id: 'b' as CostTelemetryId, agent: 'sentinel', model: 'claude-3', estimatedCostUsd: 7, inputTokens: 70, outputTokens: 35 }),
+      makeTelemetry({ _id: 'c' as CostTelemetryId, agent: 'forge', model: 'claude-3', estimatedCostUsd: 2, inputTokens: 20, outputTokens: 10 }),
+    ]
+
+    const result = costTelemetryModule.aggregateByCategory(rows, 'model')
+    expect(result).toHaveLength(2)
+    const claudeBucket = result.find((b) => b.category === 'claude-3')
+    const gptBucket = result.find((b) => b.category === 'gpt-5')
+    expect(claudeBucket).toBeDefined()
+    expect(claudeBucket!.entries).toBe(2)
+    expect(claudeBucket!.costUsd).toBe(9)
+    expect(claudeBucket!.categoryType).toBe('model')
+    expect(gptBucket).toBeDefined()
+    expect(gptBucket!.entries).toBe(1)
+  })
+
+  it('aggregateByCategory returns empty array for no rows', () => {
+    const result = costTelemetryModule.aggregateByCategory([], 'agent')
+    expect(result).toHaveLength(0)
+  })
+})
+
+describe('costTelemetry aggregateByPeriod — hour and week granularity', () => {
+  it('aggregateByPeriod creates hourly buckets with correct labels', () => {
+    const baseHour = 1_700_000_000_000 // some timestamp
+    const rows = [
+      makeTelemetry({ _id: 'a' as CostTelemetryId, timestamp: baseHour + 1_000, estimatedCostUsd: 1, inputTokens: 10, outputTokens: 5 }),
+      makeTelemetry({ _id: 'b' as CostTelemetryId, timestamp: baseHour + 3_600_000 + 1_000, estimatedCostUsd: 2, inputTokens: 20, outputTokens: 10 }),
+    ]
+
+    const hourMs = 60 * 60 * 1000
+    const startMs = Math.floor(baseHour / hourMs) * hourMs
+    const endMs = startMs + 2 * hourMs - 1
+
+    const result = costTelemetryModule.aggregateByPeriod(rows, 'hour', startMs, endMs)
+    expect(result).toHaveLength(2)
+    // Hourly labels contain hours (format: YYYY-MM-DDTHH:00:00Z)
+    expect(result[0].label).toMatch(/T\d{2}:00:00Z$/)
+    expect(result[0].entries).toBe(1)
+    expect(result[1].entries).toBe(1)
+  })
+
+  it('aggregateByPeriod creates weekly buckets', () => {
+    const weekMs = 7 * 24 * 60 * 60 * 1000
+    const baseWeek = Math.floor(1_700_000_000_000 / weekMs) * weekMs
+    const rows = [
+      makeTelemetry({ _id: 'a' as CostTelemetryId, timestamp: baseWeek + 1_000, estimatedCostUsd: 10, inputTokens: 100, outputTokens: 50 }),
+    ]
+
+    const result = costTelemetryModule.aggregateByPeriod(rows, 'week', baseWeek, baseWeek + weekMs - 1)
+    expect(result).toHaveLength(1)
+    // Weekly label is date format YYYY-MM-DD
+    expect(result[0].label).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(result[0].entries).toBe(1)
+    expect(result[0].costUsd).toBe(10)
+  })
+})
+
+describe('costTelemetry getAnalytics and getAnomalyPrimitives handlers', () => {
+  type AnalyticsHandlerConfig = {
+    handler: (ctx: AnalyticsMockCtx, args: unknown) => Promise<unknown>
+  }
+
+  type AnalyticsMockCtx = {
+    db: {
+      query: (table: string) => {
+        withIndex: (indexName: string, fn: unknown) => {
+          collect: () => Promise<CostTelemetryDoc[]>
+        }
+      }
+      get: (id: string) => Promise<{ project?: string } | null>
+    }
+  }
+
+  function makeAnalyticsCtx(docs: CostTelemetryDoc[], taskProjects: Record<string, string> = {}): AnalyticsMockCtx {
+    return {
+      db: {
+        query: (_table: string) => ({
+          withIndex: (_indexName: string, _fn: unknown) => ({
+            collect: async () => docs,
+          }),
+        }),
+        get: async (id: string) => {
+          const project = taskProjects[id]
+          return project !== undefined ? { project } : null
+        },
+      },
+    }
+  }
+
+  const getAnalyticsHandler = (
+    costTelemetryModule.getAnalytics as unknown as AnalyticsHandlerConfig
+  ).handler
+
+  const getAnomalyPrimitivesHandler = (
+    costTelemetryModule.getAnomalyPrimitives as unknown as AnalyticsHandlerConfig
+  ).handler
+
+  it('getAnalytics returns aggregated totals, period, projects, and categories', async () => {
+    const now = Date.now()
+    const docs = [
+      makeTelemetry({ _id: 'a' as CostTelemetryId, taskId: 'task-1' as TaskId, agent: 'forge', model: 'gpt-5', estimatedCostUsd: 5, inputTokens: 50, outputTokens: 25, timestamp: now - 3600_000 }),
+      makeTelemetry({ _id: 'b' as CostTelemetryId, taskId: 'task-2' as TaskId, agent: 'sentinel', model: 'claude-3', estimatedCostUsd: 10, inputTokens: 100, outputTokens: 50, timestamp: now - 7200_000 }),
+    ]
+
+    const ctx = makeAnalyticsCtx(docs, { 'task-1': 'project-alpha', 'task-2': 'project-beta' })
+    const result = await getAnalyticsHandler(ctx, {}) as { totals: { entries: number; costUsd: number; uniqueProjects: number }; period: unknown[]; projects: unknown[]; categories: unknown[] }
+
+    expect(result.totals.entries).toBe(2)
+    expect(result.totals.costUsd).toBeCloseTo(15)
+    expect(result.totals.uniqueProjects).toBe(2)
+    expect(Array.isArray(result.period)).toBe(true)
+    expect(Array.isArray(result.projects)).toBe(true)
+    expect(Array.isArray(result.categories)).toBe(true)
+  })
+
+  it('getAnomalyPrimitives returns anomalies array', async () => {
+    const now = Date.now()
+    const docs = [
+      makeTelemetry({ _id: 'a' as CostTelemetryId, taskId: 'task-1' as TaskId, agent: 'forge', model: 'gpt-5', estimatedCostUsd: 1, inputTokens: 10, outputTokens: 5, timestamp: now - 3600_000 }),
+    ]
+
+    const ctx = makeAnalyticsCtx(docs)
+    const result = await getAnomalyPrimitivesHandler(ctx, {}) as { anomalies: unknown[] }
+
+    expect(Array.isArray(result.anomalies)).toBe(true)
+  })
+})

@@ -53,4 +53,113 @@ describe('AgentPresenceWidget', () => {
 
     vi.useRealTimers()
   })
+
+  it('shows "just now" for agents seen less than 30 seconds ago', () => {
+    vi.useFakeTimers()
+    const now = new Date('2026-02-20T22:45:00.000Z').getTime()
+    vi.setSystemTime(now)
+
+    const agents: AgentPresenceEntry[] = [
+      {
+        agent: 'jarvis',
+        status: 'in_review',
+        lastSeen: now - 10_000, // 10 seconds ago
+        activeTask: { taskId: '4', taskKey: 'AD-4', title: 'Quick review' },
+      },
+    ]
+
+    render(<AgentPresenceWidget agents={agents} workload={{}} />)
+
+    expect(screen.getByTestId('agent-presence-jarvis').textContent).toContain('just now')
+    // in_review is a busy status and recently seen => busy
+    expect(screen.getByTestId('agent-state-jarvis').textContent).toBe('busy')
+
+    vi.useRealTimers()
+  })
+
+  it('shows hours-ago format for agents seen more than 60 minutes ago', () => {
+    vi.useFakeTimers()
+    const now = new Date('2026-02-20T22:45:00.000Z').getTime()
+    vi.setSystemTime(now)
+
+    const agents: AgentPresenceEntry[] = [
+      {
+        agent: 'archivist',
+        status: 'ready',
+        lastSeen: now - 3 * 60 * 60 * 1000, // 3 hours ago → offline
+        activeTask: { taskId: '5', taskKey: 'AD-5', title: 'Archive logs' },
+      },
+    ]
+
+    render(<AgentPresenceWidget agents={agents} workload={{}} />)
+
+    expect(screen.getByTestId('agent-presence-archivist').textContent).toContain('3h ago')
+    expect(screen.getByTestId('agent-state-archivist').textContent).toBe('offline')
+
+    vi.useRealTimers()
+  })
+
+  it('handles agents with no workload entry and no active task', () => {
+    vi.useFakeTimers()
+    const now = new Date('2026-02-20T22:45:00.000Z').getTime()
+    vi.setSystemTime(now)
+
+    const agents: AgentPresenceEntry[] = [
+      {
+        agent: 'unknown-agent',
+        status: undefined,
+        lastSeen: now - 60_000, // 1 minute ago → online
+      },
+    ]
+
+    render(<AgentPresenceWidget agents={agents} workload={{}} />)
+
+    // No workload entry → shows 0/0 in progress
+    expect(screen.getByTestId('agent-workload-unknown-agent').textContent).toContain('0/0 in progress')
+    // No active task → falls back to defaults
+    expect(screen.getByTestId('agent-activity-unknown-agent').textContent).toContain('Task: No current task')
+    // undefined status → "online" (not in BUSY_TASK_STATUSES)
+    expect(screen.getByTestId('agent-state-unknown-agent').textContent).toBe('online')
+    // undefined status → formatStatus returns 'planning'
+    expect(screen.getByTestId('agent-activity-unknown-agent').textContent).toContain('planning')
+
+    vi.useRealTimers()
+  })
+
+  it('shows busy state for in_review status when recently seen', () => {
+    vi.useFakeTimers()
+    const now = new Date('2026-02-20T22:45:00.000Z').getTime()
+    vi.setSystemTime(now)
+
+    const agents: AgentPresenceEntry[] = [
+      {
+        agent: 'reviewer',
+        status: 'in_review',
+        lastSeen: now - 2 * 60 * 1000, // 2 minutes ago → recently seen
+        activeTask: { taskId: '6', taskKey: 'AD-6', title: 'Reviewing code' },
+      },
+      {
+        agent: 'blocker',
+        status: 'blocked',
+        lastSeen: now - 3 * 60 * 1000, // 3 minutes ago → recently seen
+        activeTask: { taskId: '7', taskKey: 'AD-7', title: 'Blocked task' },
+      },
+    ]
+
+    const workload: WorkloadData = {
+      reviewer: { total: 0, byStatus: {}, byPriority: {} },
+      blocker: { total: 5, byStatus: { in_progress: 5 }, byPriority: {} },
+    }
+
+    render(<AgentPresenceWidget agents={agents} workload={workload} />)
+
+    expect(screen.getByTestId('agent-state-reviewer').textContent).toBe('busy')
+    expect(screen.getByTestId('agent-state-blocker').textContent).toBe('busy')
+    // totalTasks = 0 → loadPct = 0
+    expect(screen.getByTestId('agent-workload-reviewer').textContent).toContain('0/0 in progress')
+    // totalTasks = 5, inProgress = 5 → 100% load
+    expect(screen.getByTestId('agent-workload-blocker').textContent).toContain('5/5 in progress')
+
+    vi.useRealTimers()
+  })
 })
