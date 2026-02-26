@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 
 import { cn } from '../lib/utils'
@@ -73,14 +73,14 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
     })).filter((group) => group.entries.length > 0)
   }, [visibleCommands])
 
-  useEffect(() => {
-    if (!open) {
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
       setQuery('')
       setActiveIndex(0)
-      return
     }
-    setActiveIndex(0)
-  }, [open, query])
+    onOpenChange(nextOpen)
+  }
 
   const runCommand = (entry: ScoredCommand | undefined) => {
     if (!entry || entry.item.enabled === false) return
@@ -94,7 +94,7 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
   const activeDescendant = activeCommand ? getOptionId(activeCommand.item.id) : undefined
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+    <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay
           className="fixed inset-0 z-50 bg-[var(--overlay-backdrop)] backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
@@ -117,7 +117,10 @@ export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteP
               aria-activedescendant={activeDescendant}
               autoFocus
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value)
+                setActiveIndex(0)
+              }}
               onKeyDown={(event) => {
                 if (event.key === 'ArrowDown') {
                   event.preventDefault()
