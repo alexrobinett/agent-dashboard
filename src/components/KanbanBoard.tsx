@@ -176,6 +176,13 @@ function KanbanBoardInteractive({
     setIsTaskModalOpen(true)
   }, [])
 
+  const handleTaskModalOpenChange = useCallback((open: boolean) => {
+    setIsTaskModalOpen(open)
+    if (!open) {
+      setSelectedTask(null)
+    }
+  }, [])
+
   const handleTaskPatched = useCallback((taskId: string, patch: Partial<TaskDetail>) => {
     setPendingDetailPatches((prev) => {
       const next = new Map(prev)
@@ -240,7 +247,7 @@ function KanbanBoardInteractive({
           task={selectedTask}
           activityEntries={selectedTaskEntries}
           open={isTaskModalOpen}
-          onOpenChange={setIsTaskModalOpen}
+          onOpenChange={handleTaskModalOpenChange}
           onTaskPatched={handleTaskPatched}
         />
       )}

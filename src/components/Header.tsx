@@ -1,13 +1,49 @@
 import { Link } from '@tanstack/react-router'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Home, Menu, X, LogOut, Bot } from 'lucide-react'
 import { useSession, signOut } from '../lib/auth.client'
 import { ThemeToggle } from './ThemeToggle'
 
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
+
 export default function Header() {
   const [isOpen, setIsOpen] = useState(false)
+  const asideRef = useRef<HTMLElement>(null)
   const { data: session } = useSession()
+
+  useEffect(() => {
+    const aside = asideRef.current
+    if (!aside || !isOpen) return
+
+    const focusable = Array.from(aside.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+
+    first?.focus()
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setIsOpen(false)
+        return
+      }
+
+      if (event.key !== 'Tab' || !first || !last) return
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    aside.addEventListener('keydown', onKeyDown)
+    return () => aside.removeEventListener('keydown', onKeyDown)
+  }, [isOpen])
 
   const handleLogout = async () => {
     await signOut({
@@ -64,6 +100,8 @@ export default function Header() {
       </header>
 
       <aside
+        ref={asideRef}
+        aria-hidden={!isOpen}
         className={`fixed left-0 top-0 z-50 flex h-full w-80 transform flex-col border-r border-border bg-card text-card-foreground shadow-2xl transition-transform duration-300 ease-in-out ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}

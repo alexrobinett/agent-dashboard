@@ -46,7 +46,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           <ConvexProvider client={convexReactClient}>
             <NetworkStatusBanner />
             <Header />
-            {children}
+            <main id="main-content" role="main" aria-label="Main content">
+              {children}
+            </main>
           </ConvexProvider>
           <ThemedToaster />
         </ThemeProvider>

@@ -22,6 +22,24 @@ export function TaskCard({ task, onOpenDetails }: TaskCardProps) {
     data: { task },
   })
 
+  const handleOpenDetails = () => {
+    onOpenDetails?.(task)
+  }
+
+  const handleCardKeyDown: React.KeyboardEventHandler<HTMLDivElement> = (event) => {
+    dndOnKeyDown?.(event)
+
+    if (!onOpenDetails) return
+    if (event.defaultPrevented) return
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      handleOpenDetails()
+    }
+  }
+
+  const { onKeyDown: dndOnKeyDown, ...restListeners } = listeners ?? {}
+
   const style: React.CSSProperties = {
     borderLeftColor: getPriorityColor(task.priority),
     ...(transform
@@ -35,10 +53,13 @@ export function TaskCard({ task, onOpenDetails }: TaskCardProps) {
       ref={setNodeRef}
       data-testid={`task-card-${task._id}`}
       data-shortcut-task-card="true"
+      aria-haspopup={onOpenDetails ? 'dialog' : undefined}
+      aria-label={onOpenDetails ? `Open details for ${task.title}` : task.title}
       className="bg-secondary rounded-md p-3 border-l-4 hover:bg-secondary/80 transition-colors cursor-grab active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
       style={style}
+      onKeyDown={handleCardKeyDown}
       {...attributes}
-      {...listeners}
+      {...restListeners}
     >
       <div className="flex items-start gap-2">
         <div

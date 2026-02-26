@@ -5,7 +5,7 @@ import { useRouter } from '@tanstack/react-router'
 import { useEffect } from 'react'
 import { getGithubOAuthEnabled } from '../lib/auth-middleware'
 
-export const Route = createFileRoute('/login')({
+export const Route = createFileRoute('/login' as never)({
   loader: async () => {
     const githubEnabled = await getGithubOAuthEnabled()
     return { githubEnabled }
@@ -27,8 +27,9 @@ function LoginPage() {
   if (isPending) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
+        <div className="text-center" role="status" aria-live="polite">
           <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent mb-4"></div>
+          <span className="sr-only">Loading login...</span>
           <p className="text-muted-foreground">Loading...</p>
         </div>
       </div>
