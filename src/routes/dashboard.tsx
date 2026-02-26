@@ -11,6 +11,7 @@ import { FilterBar } from '../components/FilterBar'
 import { WorkloadChart, type WorkloadData } from '../components/WorkloadChart'
 import { KanbanBoard } from '../components/KanbanBoard'
 import { ActivityTimeline, type ActivityEntry } from '../components/ActivityTimeline'
+import { AgentPresenceWidget, type AgentPresenceEntry } from '../components/AgentPresenceWidget'
 import { Button } from '../components/ui/button'
 import {
   Sheet,
@@ -117,6 +118,7 @@ function DashboardComponent({
         tasks={initialData}
         workload={{}}
         activityEntries={[]}
+        agentPresence={[]}
         activeView={initialView}
       />
     )
@@ -167,6 +169,17 @@ function DashboardLiveComponent({
   }
   const activityEntries: ActivityEntry[] = liveActivityEntries ?? []
 
+  // Live agent presence data
+  let liveAgentPresence: AgentPresenceEntry[] | undefined
+  try {
+    liveAgentPresence = useQuery(api.tasks.getAgentPresence, {
+      limit: 20,
+    }) as AgentPresenceEntry[] | undefined
+  } catch {
+    liveAgentPresence = undefined
+  }
+  const agentPresence: AgentPresenceEntry[] = liveAgentPresence ?? []
+
   // Log SSR hydration timing (runs once on mount)
   useEffect(() => {
     const mountTime = mountTimeRef.current
@@ -205,6 +218,7 @@ function DashboardLiveComponent({
       tasks={tasks}
       workload={workload}
       activityEntries={activityEntries}
+      agentPresence={agentPresence}
       activeView={initialView}
     />
   )
@@ -214,11 +228,13 @@ export function DashboardBoard({
   tasks,
   workload,
   activityEntries,
+  agentPresence,
   activeView,
 }: {
   tasks: Record<string, DashboardTask[]>
   workload: WorkloadData
   activityEntries: ActivityEntry[]
+  agentPresence: AgentPresenceEntry[]
   activeView: DashboardView
 }) {
   const statusOrder: TaskStatus[] = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
@@ -693,6 +709,10 @@ export function DashboardBoard({
           agents={agents}
           searchInputRef={searchInputRef}
         />
+
+        <ErrorBoundary title="Agent presence error" inline>
+          <AgentPresenceWidget agents={agentPresence} workload={workload} />
+        </ErrorBoundary>
 
         {activeView === 'workload' && (
           <ErrorBoundary title="Workload chart error" inline>
