@@ -539,6 +539,106 @@ export const getWorkload = query({
   },
 })
 
+export const searchTasks = query({
+  args: {
+    query: v.string(),
+  },
+  handler: async (ctx, _args) => {
+    const args = _args as any
+    const rawQuery = String(args.query ?? '').trim()
+    if (!rawQuery) return []
+
+    const tasksById = new Map<string, any>()
+
+    const baseQuery = ctx.db.query('tasks')
+    const maybeWithSearchIndex = (baseQuery as {
+      withSearchIndex?: (name: string, fn: (q: { search: (field: string, value: string) => unknown }) => unknown) => any
+    }).withSearchIndex
+
+    if (typeof maybeWithSearchIndex === 'function') {
+      const titleMatches = await maybeWithSearchIndex
+        .call(baseQuery, 'search_title', (q) => q.search('title', rawQuery))
+        .take(20)
+
+      for (const task of titleMatches) {
+        tasksById.set(String(task._id), task)
+      }
+
+      const descMatches = await maybeWithSearchIndex
+        .call(baseQuery, 'search_description', (q) => q.search('description', rawQuery))
+        .take(20)
+
+      for (const task of descMatches) {
+        tasksById.set(String(task._id), task)
+      }
+    } else {
+      const scanTasks = await queryTasksWithOptionalIndex(ctx, 1000, 'by_created_at')
+      const needle = rawQuery.toLowerCase()
+      for (const task of scanTasks) {
+        const title = String(task.title ?? '').toLowerCase()
+        const description = String(task.description ?? '').toLowerCase()
+        if (title.includes(needle) || description.includes(needle)) {
+          tasksById.set(String(task._id), task)
+        }
+      }
+    }
+
+    return [...tasksById.values()]
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+      .slice(0, 20)
+  },
+})
+
+function timeframeStartMs(timeframe: 'day' | 'week' | 'month', now = Date.now()): number {
+  const dayMs = 24 * 60 * 60 * 1000
+  if (timeframe === 'day') return now - dayMs
+  if (timeframe === 'week') return now - (7 * dayMs)
+  return now - (30 * dayMs)
+}
+
+export const getMetrics = query({
+  args: {
+    timeframe: v.union(v.literal('day'), v.literal('week'), v.literal('month')),
+  },
+  handler: async (ctx, _args) => {
+    const args = _args as any
+    const startMs = timeframeStartMs(args.timeframe as 'day' | 'week' | 'month')
+    const allTasks = await queryAllTasksWithOptionalIndex<any>(ctx, 'by_created_at')
+
+    const relevantTasks = allTasks.filter((task) => {
+      const createdAt = task.createdAt ?? 0
+      const startedAt = task.startedAt ?? 0
+      const completedAt = task.completedAt ?? 0
+      return createdAt >= startMs || startedAt >= startMs || completedAt >= startMs
+    })
+
+    const completedTasks = relevantTasks.filter((task) => task.status === 'done')
+    const activeAgentSet = new Set(
+      relevantTasks
+        .filter((task) => task.assignedAgent && task.status !== 'done' && task.status !== 'cancelled')
+        .map((task) => String(task.assignedAgent)),
+    )
+
+    const completionDurations = completedTasks
+      .map((task) => {
+        if (typeof task.startedAt !== 'number' || typeof task.completedAt !== 'number') return null
+        return Math.max(0, task.completedAt - task.startedAt)
+      })
+      .filter((value): value is number => typeof value === 'number')
+
+    const avgCompletionMs = completionDurations.length > 0
+      ? Math.round(completionDurations.reduce((sum, value) => sum + value, 0) / completionDurations.length)
+      : 0
+
+    return {
+      totalTasks: relevantTasks.length,
+      completedTasks: completedTasks.length,
+      activeAgents: activeAgentSet.size,
+      avgCompletionMs,
+    }
+  },
+})
+
 export const getBoard = query({
   handler: async (ctx) => {
     const all = await queryTasksWithOptionalIndex(ctx, 200, 'by_created_at')

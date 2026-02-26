@@ -84,6 +84,8 @@ export const api = {
     getWorkload: {} as any,
     listFiltered: {} as any,
     getById: {} as any,
+    searchTasks: {} as any,
+    getMetrics: {} as any,
     create: {} as any,
     createTask: {} as any,
     update: {} as any,

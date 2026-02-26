@@ -13,6 +13,8 @@ import { KanbanBoard } from '../components/KanbanBoard'
 import { ActivityTimeline, type ActivityEntry } from '../components/ActivityTimeline'
 import { AgentPresenceWidget, type AgentPresenceEntry } from '../components/AgentPresenceWidget'
 import { Button } from '../components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
+import { Skeleton } from '../components/ui/skeleton'
 import {
   Sheet,
   SheetContent,
@@ -44,6 +46,13 @@ type DashboardTask = {
   project?: string
   priority?: string
   _status?: string
+}
+
+type DashboardMetrics = {
+  totalTasks: number
+  completedTasks: number
+  activeAgents: number
+  avgCompletionMs: number
 }
 
 const MAX_TASK_ACTION_COMMANDS = 8
@@ -119,6 +128,8 @@ function DashboardComponent({
         workload={{}}
         activityEntries={[]}
         agentPresence={[]}
+        metrics={undefined}
+        metricsLoading
         activeView={initialView}
       />
     )
@@ -180,6 +191,13 @@ function DashboardLiveComponent({
   }
   const agentPresence: AgentPresenceEntry[] = liveAgentPresence ?? []
 
+  let liveMetrics: DashboardMetrics | undefined
+  try {
+    liveMetrics = useQuery(api.tasks.getMetrics, { timeframe: 'week' }) as DashboardMetrics | undefined
+  } catch {
+    liveMetrics = undefined
+  }
+
   // Log SSR hydration timing (runs once on mount)
   useEffect(() => {
     const mountTime = mountTimeRef.current
@@ -219,6 +237,8 @@ function DashboardLiveComponent({
       workload={workload}
       activityEntries={activityEntries}
       agentPresence={agentPresence}
+      metrics={liveMetrics}
+      metricsLoading={liveMetrics === undefined}
       activeView={initialView}
     />
   )
@@ -229,12 +249,16 @@ export function DashboardBoard({
   workload,
   activityEntries,
   agentPresence,
+  metrics,
+  metricsLoading,
   activeView,
 }: {
   tasks: Record<string, DashboardTask[]>
   workload: WorkloadData
   activityEntries: ActivityEntry[]
   agentPresence: AgentPresenceEntry[]
+  metrics?: DashboardMetrics
+  metricsLoading?: boolean
   activeView: DashboardView
 }) {
   const statusOrder: TaskStatus[] = ['planning', 'ready', 'in_progress', 'in_review', 'done', 'blocked']
@@ -245,6 +269,8 @@ export function DashboardBoard({
   const [isNewTaskOpen, setIsNewTaskOpen] = useState(false)
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false)
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
+  const [commandPaletteQuery, setCommandPaletteQuery] = useState('')
+  const [debouncedPaletteQuery, setDebouncedPaletteQuery] = useState('')
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskDescription, setNewTaskDescription] = useState('')
   const [newTaskError, setNewTaskError] = useState<string | null>(null)
@@ -254,6 +280,18 @@ export function DashboardBoard({
   const claimTask = useMutation(api.tasks.claimTask)
   const completeTask = useMutation(api.tasks.completeTask)
   const updateTask = useMutation(api.tasks.updateTask)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedPaletteQuery(commandPaletteQuery), 300)
+    return () => window.clearTimeout(timer)
+  }, [commandPaletteQuery])
+
+  const remotePaletteMatches = useQuery(
+    api.tasks.searchTasks,
+    isCommandPaletteOpen && debouncedPaletteQuery.trim()
+      ? { query: debouncedPaletteQuery.trim() }
+      : 'skip',
+  ) as DashboardTask[] | undefined
 
   const setActiveView = useCallback(
     (view: DashboardView) => {
@@ -411,8 +449,11 @@ export function DashboardBoard({
       },
     ]
 
-    const actionableTasks = searchResults.slice(0, MAX_TASK_ACTION_COMMANDS)
-    if (searchResults.length > MAX_TASK_ACTION_COMMANDS) {
+    const paletteTaskSource = commandPaletteQuery.trim()
+      ? (remotePaletteMatches ?? [])
+      : searchResults
+    const actionableTasks = paletteTaskSource.slice(0, MAX_TASK_ACTION_COMMANDS)
+    if (paletteTaskSource.length > MAX_TASK_ACTION_COMMANDS) {
       baseCommands.push({
         id: 'task-actions-truncated-notice',
         group: 'Tasks',
@@ -535,6 +576,8 @@ export function DashboardBoard({
     newTaskDescription,
     newTaskTitle,
     runPaletteTaskAction,
+    commandPaletteQuery,
+    remotePaletteMatches,
     searchResults,
     setActiveView,
     setFilter,
@@ -719,7 +762,17 @@ export function DashboardBoard({
 
         {activeView === 'workload' && (
           <ErrorBoundary title="Workload chart error" inline>
-            <div data-testid="workload-view-panel">
+            <div data-testid="workload-view-panel" className="space-y-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="workload-metrics-cards">
+                <MetricCard title="Total Tasks" value={metrics?.totalTasks ?? 0} loading={Boolean(metricsLoading)} />
+                <MetricCard title="Completed" value={metrics?.completedTasks ?? 0} loading={Boolean(metricsLoading)} />
+                <MetricCard title="Active Agents" value={metrics?.activeAgents ?? 0} loading={Boolean(metricsLoading)} />
+                <MetricCard
+                  title="Avg Completion Time"
+                  value={formatDuration(metrics?.avgCompletionMs ?? 0)}
+                  loading={Boolean(metricsLoading)}
+                />
+              </div>
               <WorkloadChart data={workload} onAgentClick={handleAgentClick} />
             </div>
           </ErrorBoundary>
@@ -756,7 +809,15 @@ export function DashboardBoard({
       />
       <CommandPalette
         open={isCommandPaletteOpen}
-        onOpenChange={setIsCommandPaletteOpen}
+        onOpenChange={(open) => {
+          setIsCommandPaletteOpen(open)
+          if (!open) {
+            setCommandPaletteQuery('')
+            setDebouncedPaletteQuery('')
+          }
+        }}
+        query={commandPaletteQuery}
+        onQueryChange={setCommandPaletteQuery}
         commands={commandPaletteCommands}
       />
 
@@ -809,6 +870,32 @@ export function DashboardBoard({
         </SheetContent>
       </Sheet>
     </div>
+  )
+}
+
+function formatDuration(durationMs: number): string {
+  if (!durationMs || durationMs < 1000) return '0m'
+  const totalMinutes = Math.round(durationMs / 60000)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (hours === 0) return `${minutes}m`
+  return `${hours}h ${minutes}m`
+}
+
+function MetricCard({ title, value, loading }: { title: string; value: string | number; loading: boolean }) {
+  return (
+    <Card className="border-border/80 bg-card/80">
+      <CardHeader className="pb-1">
+        <CardTitle className="text-xs uppercase tracking-wide text-muted-foreground">{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <Skeleton className="h-7 w-24" data-testid={`metric-skeleton-${title.toLowerCase().replace(/\s+/g, '-')}`} />
+        ) : (
+          <p className="text-2xl font-semibold text-foreground">{value}</p>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
