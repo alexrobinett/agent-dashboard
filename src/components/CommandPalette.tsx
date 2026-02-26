@@ -22,6 +22,8 @@ interface CommandPaletteProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   commands: CommandItem[]
+  query?: string
+  onQueryChange?: (query: string) => void
 }
 
 interface ScoredCommand {
@@ -54,10 +56,12 @@ function fuzzyScore(item: CommandItem, query: string): number {
   return 100 - densityPenalty
 }
 
-export function CommandPalette({ open, onOpenChange, commands }: CommandPaletteProps) {
+export function CommandPalette({ open, onOpenChange, commands, query: controlledQuery, onQueryChange }: CommandPaletteProps) {
   const paletteId = useId()
-  const [query, setQuery] = useState('')
+  const [uncontrolledQuery, setUncontrolledQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
+  const query = controlledQuery ?? uncontrolledQuery
+  const setQuery = onQueryChange ?? setUncontrolledQuery
 
   const visibleCommands = useMemo<ScoredCommand[]>(() => {
     return commands

@@ -46,6 +46,8 @@ const getTaskHandler = (taskModule.getTask as unknown as HandlerExtractor).handl
 const getBoardHandler = (taskModule.getBoard as unknown as HandlerExtractor).handler
 const getWorkloadByAgentStatusHandler = (taskModule.getWorkloadByAgentStatus as unknown as HandlerExtractor).handler
 const getAgentPresenceHandler = (taskModule.getAgentPresence as unknown as HandlerExtractor).handler
+const searchTasksHandler = (taskModule.searchTasks as unknown as HandlerExtractor).handler
+const getMetricsHandler = (taskModule.getMetrics as unknown as HandlerExtractor).handler
 const heartbeatHandler = (taskModule.heartbeat as unknown as HandlerExtractor).handler
 
 // Deprecated handlers
@@ -118,6 +120,24 @@ function mockCtx(tasks: Task[], activityLog: Array<Record<string, unknown>> = []
               }
             }
             return makeChain(result)
+          },
+          withSearchIndex: (_indexName: string, searchFn: (q: any) => any) => {
+            const searchCalls: Array<{ field: string; value: string }> = []
+            const searchQ = {
+              search: (field: string, value: string) => {
+                searchCalls.push({ field, value })
+                return searchQ
+              },
+            }
+            searchFn(searchQ)
+            let result = [...filtered]
+            for (const { field, value } of searchCalls) {
+              const needle = value.toLowerCase()
+              result = result.filter((doc: any) => String(doc[field] ?? '').toLowerCase().includes(needle))
+            }
+            return {
+              take: async (n: number) => result.slice(0, n),
+            }
           },
         })
         return makeChain([...rows])
@@ -2106,6 +2126,49 @@ describe('Pure function exports', () => {
     ]
     const result = taskModule.aggregateWorkloadEntries(tasks, { priority: 'high' })
     expect(result).toHaveLength(1)
+  })
+})
+
+describe('searchTasks query', () => {
+  it('returns matches from title and description with max 20', async () => {
+    const tasks = Array.from({ length: 25 }, (_, i) =>
+      makeTask({
+        _id: `s${i}` as TaskId,
+        title: i % 2 === 0 ? `Searchable ${i}` : `Task ${i}`,
+        description: i % 2 === 1 ? `search term in description ${i}` : 'other',
+        createdAt: i,
+      }),
+    )
+    const ctx = mockCtx(tasks)
+    const result = await searchTasksHandler(ctx, { query: 'search' })
+
+    expect(result.length).toBe(20)
+    expect(result.some((task: Task) => String(task.title).includes('Searchable'))).toBe(true)
+    expect(result.some((task: Task) => String(task.description).includes('search term'))).toBe(true)
+  })
+
+  it('returns empty for blank query', async () => {
+    const ctx = mockCtx([makeTask({ _id: 's' as TaskId, title: 'Anything' })])
+    const result = await searchTasksHandler(ctx, { query: '  ' })
+    expect(result).toEqual([])
+  })
+})
+
+describe('getMetrics query', () => {
+  it('returns KPI metrics for timeframe', async () => {
+    const now = Date.now()
+    const tasks = [
+      makeTask({ _id: 'm1' as TaskId, assignedAgent: 'forge', status: 'done', createdAt: now - 1000, startedAt: now - 5000, completedAt: now - 1000 } as any),
+      makeTask({ _id: 'm2' as TaskId, assignedAgent: 'sentinel', status: 'in_progress', createdAt: now - 2000, startedAt: now - 2000 } as any),
+      makeTask({ _id: 'm3' as TaskId, status: 'planning', createdAt: now - 3000 } as any),
+    ]
+    const ctx = mockCtx(tasks)
+    const result = await getMetricsHandler(ctx, { timeframe: 'week' })
+
+    expect(result.totalTasks).toBe(3)
+    expect(result.completedTasks).toBe(1)
+    expect(result.activeAgents).toBe(1)
+    expect(result.avgCompletionMs).toBeGreaterThan(0)
   })
 })
 

@@ -15,6 +15,8 @@ vi.mock('../../../convex/_generated/api', () => ({
       claimTask: 'tasks:claimTask',
       completeTask: 'tasks:completeTask',
       updateTask: 'tasks:updateTask',
+      searchTasks: 'tasks:searchTasks',
+      getMetrics: 'tasks:getMetrics',
     },
   },
 }))
@@ -26,6 +28,11 @@ vi.mock('convex/react', () => ({
     if (ref === 'tasks:completeTask') return mockCompleteTask
     if (ref === 'tasks:updateTask') return mockUpdateTask
     return vi.fn()
+  },
+  useQuery: (ref: string) => {
+    if (ref === 'tasks:searchTasks') return []
+    if (ref === 'tasks:getMetrics') return { totalTasks: 0, completedTasks: 0, activeAgents: 0, avgCompletionMs: 0 }
+    return undefined
   },
   ConvexReactClient: class {
     setAuth() {}

@@ -93,7 +93,15 @@ export default defineSchema({
     .index('by_parent', ['parentTask'])
     .index('by_project', ['project'])
     .index('by_task_number', ['taskNumber'])
-    .index('by_task_key', ['taskKey']),
+    .index('by_task_key', ['taskKey'])
+    .searchIndex('search_title', {
+      searchField: 'title',
+      filterFields: ['status', 'assignedAgent', 'project', 'priority', 'createdAt'],
+    })
+    .searchIndex('search_description', {
+      searchField: 'description',
+      filterFields: ['status', 'assignedAgent', 'project', 'priority', 'createdAt'],
+    }),
 
   // User preferences for dashboard customization
   userPreferences: defineTable({
