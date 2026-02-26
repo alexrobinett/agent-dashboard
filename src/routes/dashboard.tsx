@@ -681,11 +681,14 @@ export function DashboardBoard({
           </Button>
           <Button
             data-testid="new-task-button"
+            type="button"
             size="sm"
             className="group ml-auto"
+            aria-haspopup="dialog"
+            aria-controls="new-task-sheet"
             onClick={() => setIsNewTaskOpen(true)}
           >
-            New Task
+            Create Task
             <ShortcutHint keys="n" />
           </Button>
           <Button
@@ -758,7 +761,7 @@ export function DashboardBoard({
       />
 
       <Sheet open={isNewTaskOpen} onOpenChange={setIsNewTaskOpen}>
-        <SheetContent data-testid="new-task-sheet" side="right">
+        <SheetContent id="new-task-sheet" data-testid="new-task-sheet" side="right">
           <SheetHeader>
             <SheetTitle>Create New Task</SheetTitle>
             <SheetDescription>
@@ -810,7 +813,18 @@ export function DashboardBoard({
 }
 
 function DashboardPendingComponent() {
-  return <BoardSkeleton />
+  return (
+    <div className="min-h-screen bg-background p-6">
+      <div className="mx-auto max-w-7xl">
+        <div className="mb-4 flex items-center gap-2" role="status" aria-live="polite">
+          <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-primary border-r-transparent" />
+          <span className="sr-only">Loading dashboard...</span>
+          <span className="text-sm text-muted-foreground">Loading dashboard...</span>
+        </div>
+        <BoardSkeleton />
+      </div>
+    </div>
+  )
 }
 
 /**
