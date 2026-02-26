@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router'
 
 import { useEffect, useRef, useState } from 'react'
-import { Home, Menu, X, LogOut, Bot } from 'lucide-react'
+import { Home, Menu, X, LogOut, Bot, ChartLine } from 'lucide-react'
 import { useSession, signOut } from '../lib/auth.client'
 import { ThemeToggle } from './ThemeToggle'
 
@@ -132,6 +132,19 @@ export default function Header() {
           >
             <Home size={20} />
             <span className="font-medium">Home</span>
+          </Link>
+
+          <Link
+            to="/cost"
+            onClick={() => setIsOpen(false)}
+            className="mb-2 flex items-center gap-3 rounded-lg p-3 transition-colors hover:bg-secondary"
+            activeProps={{
+              className:
+                'mb-2 flex items-center gap-3 rounded-lg bg-primary p-3 text-primary-foreground transition-colors hover:bg-primary/90',
+            }}
+          >
+            <ChartLine size={20} />
+            <span className="font-medium">Cost Analytics</span>
           </Link>
 
           {/* Demo Links Start */}

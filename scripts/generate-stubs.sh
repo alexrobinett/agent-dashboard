@@ -99,6 +99,10 @@ export const api = {
   pushTokens: {
     getUserTokens: {} as any,
   },
+  costTelemetry: {
+    getAnalytics: {} as any,
+    getAnomalyPrimitives: {} as any,
+  },
 };
 
 export const internal = {
