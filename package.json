@@ -26,7 +26,7 @@
     "test:visual:update": "playwright test e2e/tests/visual.spec.ts --update-snapshots",
     "lint:fast": "oxlint src convex",
     "lint:full": "eslint src/ convex/ --ext .ts,.tsx",
-    "check:fast": "concurrently -n typecheck,lint \"pnpm typecheck\" \"pnpm lint\"",
+    "check:fast": "concurrently -n typecheck,lint \"pnpm typecheck\" \"pnpm lint:full\"",
     "check": "pnpm check:fast && pnpm test"
   },
   "dependencies": {
