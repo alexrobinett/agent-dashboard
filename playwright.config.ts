@@ -37,7 +37,10 @@ export default defineConfig({
   use: {
     /* Base URL to use in actions like `await page.goto('/')` */
     baseURL: process.env.BASE_URL || 'http://localhost:4173',
-    
+
+    /* Use data-testid as the default test ID attribute */
+    testIdAttribute: 'data-testid',
+
     /* Collect trace when retrying the failed test */
     trace: 'on-first-retry',
     
