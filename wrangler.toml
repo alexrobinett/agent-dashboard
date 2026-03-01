@@ -7,3 +7,4 @@ cwd = "."
 
 # Output directory for TanStack Start / Nitro (Cloudflare Pages static assets)
 # Full output lives at .output; static client assets at .output/public
+pages_build_output_dir = ".output/public"
